@@ -1,4 +1,4 @@
-git## TeamCode Module
+## TeamCode Module
 
 Welcome!
 
