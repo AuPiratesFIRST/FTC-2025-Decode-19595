@@ -9,7 +9,7 @@ import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.TileCoordinate;
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
-import com.acmerobotics.dashboard.canvas.*;
+import com.acmerobotics.dashboard.canvas.Canvas;
 
 @TeleOp(name = "Vision Tile Dashboard Test", group = "Test")
 public class VisionTileDashboardTest extends LinearOpMode {
@@ -55,6 +55,14 @@ public class VisionTileDashboardTest extends LinearOpMode {
                 telemetry.addLine("Localization not updated this cycle.");
             }
 
+            // Drive with gamepad
+            if (driveSubsystem != null) {
+                double forward = -gamepad1.left_stick_y;
+                double strafe = gamepad1.left_stick_x;
+                double turn = gamepad1.right_stick_x;
+                driveSubsystem.drive(forward, strafe, turn);
+            }
+
             // Draw robot current pose onto FTC Dashboard overlay
             if (driveSubsystem != null) {
                 TileCoordinate pos = driveSubsystem.getCurrentPosition();
@@ -66,7 +74,7 @@ public class VisionTileDashboardTest extends LinearOpMode {
                     double fx = x - 72.0;
                     double fy = y - 72.0;
                     TelemetryPacket packet = new TelemetryPacket();
-                    var overlay = packet.fieldOverlay();
+                    Canvas overlay = packet.fieldOverlay();
                     // Optional: custom grid example (page frame)
                     overlay.drawGrid(0, 0, 144, 144, 7, 7);
                     // Robot footprint
