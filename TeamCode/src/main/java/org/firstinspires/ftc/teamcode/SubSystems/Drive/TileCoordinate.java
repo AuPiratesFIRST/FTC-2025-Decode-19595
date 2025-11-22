@@ -123,26 +123,45 @@ public class TileCoordinate {
     }
 
     /**
-     * Calculate distance to another tile coordinate
+     * Calculate Euclidean distance to another tile coordinate.
+     * 
+     * Uses distance formula: distance = √((x₂-x₁)² + (y₂-y₁)²)
+     * This is the straight-line distance between two points on the field.
      * 
      * @param other Other tile coordinate
      * @return Distance in inches
      */
     public double distanceTo(TileCoordinate other) {
+        // Calculate differences in x and y coordinates
         double dx = other.x - this.x;
         double dy = other.y - this.y;
+
+        // Euclidean distance formula: √(dx² + dy²)
         return Math.sqrt(dx * dx + dy * dy);
     }
 
     /**
-     * Calculate angle to another tile coordinate
+     * Calculate angle to another tile coordinate.
+     * 
+     * Uses atan2(dy, dx) to compute angle in radians.
+     * Returns angle from current position to target:
+     * - 0 radians = right (0°)
+     * - π/2 radians = up (90°)
+     * - π radians = left (180°)
+     * - 3π/2 radians = down (270°)
+     * 
+     * atan2 handles all quadrants correctly (unlike atan which only works in two).
      * 
      * @param other Other tile coordinate
      * @return Angle in radians (0 = right, π/2 = up, π = left, 3π/2 = down)
      */
     public double angleTo(TileCoordinate other) {
+        // Calculate differences in x and y coordinates
         double dx = other.x - this.x;
         double dy = other.y - this.y;
+
+        // atan2(dy, dx) returns angle in radians, handling all quadrants
+        // Returns angle from positive x-axis (right) to the vector (dx, dy)
         return Math.atan2(dy, dx);
     }
 

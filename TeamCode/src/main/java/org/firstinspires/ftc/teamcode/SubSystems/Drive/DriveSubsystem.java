@@ -6,6 +6,10 @@ import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.Range;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 
+/**
+ * Drive subsystem for mecanum wheel drivebase with tile-based navigation.
+ * Provides teleop control and autonomous navigation using tile coordinates.
+ */
 public class DriveSubsystem {
 
     public final DcMotorEx leftFront, leftRear, rightRear, rightFront;
@@ -54,13 +58,32 @@ public class DriveSubsystem {
         rightRear.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
     }
 
+    /**
+     * Mecanum wheel drive kinematics.
+     * 
+     * Calculates individual motor powers for mecanum wheel drivebase.
+     * Each wheel combines forward, strafe, and turn components:
+     * - Left Front: forward + strafe + turn
+     * - Right Front: forward - strafe - turn
+     * - Left Rear: forward - strafe + turn
+     * - Right Rear: forward + strafe - turn
+     * 
+     * The strafe component is opposite for left vs right wheels to enable
+     * sideways movement. Turn is added/subtracted based on wheel position.
+     * 
+     * @param forward Forward/backward movement (-1.0 to 1.0)
+     * @param strafe  Left/right strafe movement (-1.0 to 1.0)
+     * @param turn    Rotation (-1.0 to 1.0, positive = counterclockwise)
+     */
     public void drive(double forward, double strafe, double turn) {
-        double fl = forward + strafe + turn;
-        double fr = forward - strafe - turn;
-        double bl = forward - strafe + turn;
-        double br = forward + strafe - turn;
+        // Mecanum wheel kinematics equations
+        // Each wheel power = forward ± strafe ± turn
+        double fl = forward + strafe + turn; // Left Front
+        double fr = forward - strafe - turn; // Right Front
+        double bl = forward - strafe + turn; // Left Rear
+        double br = forward + strafe - turn; // Right Rear
 
-        // Clip values to avoid exceeding motor power limits
+        // Clip values to avoid exceeding motor power limits [-1.0, 1.0]
         leftFront.setPower(Range.clip(fl, -1, 1));
         rightFront.setPower(Range.clip(fr, -1, 1));
         leftRear.setPower(Range.clip(bl, -1, 1));
@@ -137,7 +160,16 @@ public class DriveSubsystem {
     }
 
     /**
-     * Move to a specific tile coordinate position
+     * Move to a specific tile coordinate position.
+     * 
+     * Calculates movement vector from current position to target:
+     * - Distance: Euclidean distance using distanceTo()
+     * - Angle: atan2(dy, dx) from currentPosition.angleTo()
+     * - Forward component: cos(angle) × power (movement along angle)
+     * - Strafe component: sin(angle) × power (perpendicular movement)
+     * - Turn component: sin(angle - heading) × power × 0.5 (aligns robot to target)
+     * 
+     * The 0.5 scaling factor reduces turn aggressiveness for smoother navigation.
      * 
      * @param target Target tile coordinate
      * @param power  Motor power (0-1)
@@ -146,11 +178,15 @@ public class DriveSubsystem {
         double distance = currentPosition.distanceTo(target);
         double angle = currentPosition.angleTo(target);
 
-        // Calculate required movement
+        // Calculate movement components using trigonometry
+        // Forward = cos(angle) × power (movement in direction of angle)
+        // Strafe = sin(angle) × power (perpendicular movement)
         double forward = Math.cos(angle) * power;
         double strafe = Math.sin(angle) * power;
 
-        // Calculate turn needed
+        // Calculate turn needed to face target
+        // turnAngle = difference between target angle and current heading
+        // Turn power = sin(turnAngle) × power × 0.5 (0.5 reduces aggressiveness)
         double turnAngle = angle - currentHeading;
         double turn = Math.sin(turnAngle) * power * 0.5; // Scale down turn power
 
@@ -181,17 +217,32 @@ public class DriveSubsystem {
     }
 
     /**
-     * Move relative to current position by tile units
+     * Move relative to current position by tile units.
+     * 
+     * Performs coordinate transformation to move relative to robot's current
+     * heading.
+     * Converts relative movement (forward/right) to absolute field coordinates:
+     * 
+     * newX = currentX + forward×cos(heading) - strafe×sin(heading)
+     * newY = currentY + forward×sin(heading) + strafe×cos(heading)
+     * 
+     * This rotation matrix accounts for robot orientation, so "forward" means
+     * in the direction the robot is facing, not always field-north.
      * 
      * @param tilesForward Number of tiles forward (negative for backward)
      * @param tilesRight   Number of tiles right (negative for left)
      * @param power        Motor power (0-1)
      */
     public void moveRelativeTiles(double tilesForward, double tilesRight, double power) {
+        // Convert tiles to inches
         double forward = tilesForward * TileCoordinate.TILE_SIZE;
         double strafe = tilesRight * TileCoordinate.TILE_SIZE;
 
-        // Calculate new position
+        // Coordinate transformation: rotate relative movement by current heading
+        // Uses rotation matrix to convert robot-relative to field-absolute coordinates
+        // newX = x + forward×cos(θ) - strafe×sin(θ)
+        // newY = y + forward×sin(θ) + strafe×cos(θ)
+        // where θ = currentHeading
         double newX = currentPosition.getX() + forward * Math.cos(currentHeading) - strafe * Math.sin(currentHeading);
         double newY = currentPosition.getY() + forward * Math.sin(currentHeading) + strafe * Math.cos(currentHeading);
 
@@ -200,7 +251,15 @@ public class DriveSubsystem {
     }
 
     /**
-     * Turn to face a specific tile
+     * Turn to face a specific tile.
+     * 
+     * Calculates shortest rotation angle to face target:
+     * - turnAngle = targetAngle - currentHeading
+     * - Normalized to [-π, π] range to ensure shortest rotation path
+     * - Uses signum() to determine turn direction (positive = CCW, negative = CW)
+     * 
+     * Normalization prevents full 360° rotations when target is slightly behind
+     * robot.
      * 
      * @param target Target tile coordinate
      * @param power  Turn power (0-1)
@@ -209,12 +268,15 @@ public class DriveSubsystem {
         double angle = currentPosition.angleTo(target);
         double turnAngle = angle - currentHeading;
 
-        // Normalize turn angle to [-π, π]
+        // Normalize turn angle to [-π, π] range for shortest rotation
+        // Prevents unnecessary 360° rotations (e.g., -179° becomes +181° without
+        // normalization)
         while (turnAngle > Math.PI)
             turnAngle -= 2 * Math.PI;
         while (turnAngle < -Math.PI)
             turnAngle += 2 * Math.PI;
 
+        // Use signum to get direction: +1 for CCW, -1 for CW
         double turn = Math.signum(turnAngle) * power;
         drive(0, 0, turn);
 

@@ -9,7 +9,10 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 
 import java.util.List;
 
-
+/**
+ * Simplified AprilTag detection for RoadRunner integration.
+ * Detects AprilTag IDs 1, 2, or 3 to determine starting position.
+ */
 public class AprilTagForRoadRunner {
     private final HardwareMap hardwareMap;
     private AprilTagProcessor aprilTag;
