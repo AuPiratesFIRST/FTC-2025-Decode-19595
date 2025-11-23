@@ -42,7 +42,7 @@ public class IntakeSubsystem {
         this.telemetry = telemetry;
 
         // Initialize motor
-        intakeMotor = hardwareMap.get(DcMotorEx.class, "intake");
+        intakeMotor = hardwareMap.get(DcMotorEx.class, "Intake");
 
         configureMotor();
     }

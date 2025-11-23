@@ -41,6 +41,9 @@ public class SpindexerSubsystem {
     // Position tolerance (in ticks)
     private static final int POSITION_TOLERANCE = 10;
 
+    // Speed multiplier for testing (0.25 = quarter speed)
+    private static final double SPEED_MULTIPLIER = 0.25;
+
     public enum SpindexerPosition {
         POSITION_1(POSITION_1_TICKS),
         POSITION_2(POSITION_2_TICKS),
@@ -61,7 +64,7 @@ public class SpindexerSubsystem {
         this.telemetry = telemetry;
 
         // Initialize motor
-        spindexerMotor = hardwareMap.get(DcMotorEx.class, "spindexer");
+        spindexerMotor = hardwareMap.get(DcMotorEx.class, "Spindexer");
 
         configureMotor();
     }
@@ -158,6 +161,9 @@ public class SpindexerSubsystem {
         // Clip output to valid motor power range [-1.0, 1.0]
         output = Range.clip(output, -1.0, 1.0);
 
+        // Apply speed multiplier for testing (quarter speed)
+        output *= SPEED_MULTIPLIER;
+
         // Apply power to motor
         spindexerMotor.setPower(output);
 
@@ -167,6 +173,17 @@ public class SpindexerSubsystem {
             telemetry.addData("Spindexer Error", "%.1f", error);
             telemetry.addData("Spindexer Power", "%.2f", output);
             telemetry.addData("At Position", isAtPosition());
+            telemetry.addData("--- PID Tuning Guide ---", "");
+            telemetry.addData("P Term", "%.3f (kP=%.3f)", proportional, kP);
+            telemetry.addData("I Term", "%.3f (kI=%.3f)", integralTerm, kI);
+            telemetry.addData("D Term", "%.3f (kD=%.3f)", derivative, kD);
+            telemetry.addData("", "");
+            telemetry.addData("PID Tuning Instructions:", "");
+            telemetry.addData("1. If oscillating/overshooting:", "Increase kD, decrease kP");
+            telemetry.addData("2. If too slow/not reaching target:", "Increase kP");
+            telemetry.addData("3. If steady-state error:", "Increase kI");
+            telemetry.addData("4. If integral windup:", "Decrease kI or increase kD");
+            telemetry.addData("5. Current Speed:", "%.0f%% (testing mode)", SPEED_MULTIPLIER * 100);
         }
     }
 

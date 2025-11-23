@@ -58,8 +58,8 @@ public class ShooterSubsystem {
         this.telemetry = telemetry;
 
         // Initialize motors
-        leftShooterMotor = hardwareMap.get(DcMotorEx.class, "leftShooter");
-        rightShooterMotor = hardwareMap.get(DcMotorEx.class, "rightShooter");
+        leftShooterMotor = hardwareMap.get(DcMotorEx.class, "shooterL");
+        rightShooterMotor = hardwareMap.get(DcMotorEx.class, "shooterR");
 
         configureMotors();
     }

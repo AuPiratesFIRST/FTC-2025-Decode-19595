@@ -5,10 +5,8 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import org.firstinspires.ftc.teamcode.pedroPathing.Constants;  // Import Constants class
 
-
 @TeleOp(name = "Motor Directions", group = "TeleOp")
 public class MotorDirections extends OpMode {
-
 
     // Motor variables
     private DcMotor leftFrontMotor;
@@ -45,6 +43,31 @@ public class MotorDirections extends OpMode {
 
     @Override
     public void loop() {
+        // Check gamepad buttons to set motor power
+        if (gamepad1.a) {
+            leftFrontMotor.setPower(1);  // Set power to 1 when A button is pressed
+        } else {
+            leftFrontMotor.setPower(0);  // Stop motor when A button is not pressed
+        }
+
+        if (gamepad1.b) {
+            leftRearMotor.setPower(1);  // Set power to 1 when B button is pressed
+        } else {
+            leftRearMotor.setPower(0);  // Stop motor when B button is not pressed
+        }
+
+        if (gamepad1.x) {
+            rightFrontMotor.setPower(1);  // Set power to 1 when X button is pressed
+        } else {
+            rightFrontMotor.setPower(0);  // Stop motor when X button is not pressed
+        }
+
+        if (gamepad1.y) {
+            rightRearMotor.setPower(1);  // Set power to 1 when Y button is pressed
+        } else {
+            rightRearMotor.setPower(0);  // Stop motor when Y button is not pressed
+        }
+
         // Get the current encoder values for each motor
         int leftFrontEncoder = leftFrontMotor.getCurrentPosition();
         int leftRearEncoder = leftRearMotor.getCurrentPosition();
