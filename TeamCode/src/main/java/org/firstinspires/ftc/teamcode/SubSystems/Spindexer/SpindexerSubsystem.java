@@ -29,9 +29,10 @@ public class SpindexerSubsystem {
                                                                                           // ticks)
 
     // PID coefficients - tune these for your specific setup
-    private double kP = 0.05; // Proportional gain
-    private double kI = 0.001; // Integral gain
-    private double kD = 0.01; // Derivative gain
+    // Lowered kP and increased kD to prevent overshoot and oscillation
+    private double kP = 0.02; // Proportional gain (reduced from 0.05)
+    private double kI = 0.0005; // Integral gain (reduced from 0.001)
+    private double kD = 0.03; // Derivative gain (increased from 0.01 for better damping)
 
     // PID state variables
     private double integral = 0;
@@ -39,10 +40,13 @@ public class SpindexerSubsystem {
     private int targetPosition = 0;
 
     // Position tolerance (in ticks)
-    private static final int POSITION_TOLERANCE = 10;
+    private static final int POSITION_TOLERANCE = 15; // Increased tolerance for better stopping
 
     // Speed multiplier for testing (0.25 = quarter speed)
     private static final double SPEED_MULTIPLIER = 0.25;
+
+    // Minimum power threshold - motor won't move below this (prevents jitter)
+    private static final double MIN_POWER_THRESHOLD = 0.05;
 
     public enum SpindexerPosition {
         POSITION_1(POSITION_1_TICKS),
@@ -135,18 +139,42 @@ public class SpindexerSubsystem {
         int currentPosition = spindexerMotor.getCurrentPosition();
         double error = targetPosition - currentPosition;
 
+        // Check if at position - stop motor if within tolerance
+        if (isAtPosition()) {
+            spindexerMotor.setPower(0);
+            // Reset integral when at position to prevent windup
+            integral = 0;
+            lastError = 0;
+
+            if (telemetry != null) {
+                telemetry.addData("Spindexer Status", "AT POSITION - STOPPED");
+                telemetry.addData("Spindexer Target", targetPosition);
+                telemetry.addData("Spindexer Current", currentPosition);
+                telemetry.addData("Spindexer Error", "%.1f", error);
+                telemetry.addData("Spindexer Power", "0.00 (stopped)");
+            }
+            return;
+        }
+
         // Proportional term: immediate response to error
         // P = error × kP (larger error = larger correction)
         double proportional = error * kP;
 
         // Integral term: accumulates error over time to eliminate steady-state error
         // I = Σ(error) × kI (handles persistent small errors)
-        integral += error;
+        // Only accumulate integral if error is significant (prevents windup near
+        // target)
+        if (Math.abs(error) > POSITION_TOLERANCE) {
+            integral += error;
+        } else {
+            // Reset integral when close to target to prevent overshoot
+            integral = 0;
+        }
         // Anti-windup: limit integral to prevent excessive correction
-        if (integral > 1000)
-            integral = 1000;
-        if (integral < -1000)
-            integral = -1000;
+        if (integral > 500)
+            integral = 500;
+        if (integral < -500)
+            integral = -500;
         double integralTerm = integral * kI;
 
         // Derivative term: rate of change of error (damping)
@@ -163,6 +191,12 @@ public class SpindexerSubsystem {
 
         // Apply speed multiplier for testing (quarter speed)
         output *= SPEED_MULTIPLIER;
+
+        // Apply minimum power threshold - if output is too small, set to zero
+        // This prevents jitter and continuous small movements
+        if (Math.abs(output) < MIN_POWER_THRESHOLD) {
+            output = 0;
+        }
 
         // Apply power to motor
         spindexerMotor.setPower(output);

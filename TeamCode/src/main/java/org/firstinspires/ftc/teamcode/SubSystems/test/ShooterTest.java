@@ -96,8 +96,10 @@ public class ShooterTest extends LinearOpMode {
             }
 
             // Update telemetry
+            telemetry.addData("=== SHOOTER TEST ===", "");
             telemetry.addData("Status", isRunning ? "RUNNING" : "STOPPED");
             telemetry.addData("Current Power", "%.2f", currentPower);
+            telemetry.addLine();
             shooter.updateTelemetry();
             telemetry.update();
 
@@ -108,4 +110,3 @@ public class ShooterTest extends LinearOpMode {
         shooter.stop();
     }
 }
-

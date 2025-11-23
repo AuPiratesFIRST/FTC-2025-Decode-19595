@@ -28,8 +28,9 @@ public class ShooterSubsystem {
 
     // Velocity control
     private double targetRPM = 0.0; // Current target RPM
-    private double rpmTolerance = 50.0; // RPM tolerance for "at target" check (default 50 RPM)
+    private double rpmTolerance = 100.0; // RPM tolerance for "at target" check (default 100 RPM, ~1.7% at 6000 RPM)
     private boolean useVelocityControl = true; // Use velocity control by default
+    private boolean usePercentageTolerance = true; // Use percentage-based tolerance (2% of target)
 
     // Tuning constants - adjustable for different shot distances
     private double minPower = 0.3; // Minimum power to start spinning (fallback mode)
@@ -79,7 +80,8 @@ public class ShooterSubsystem {
 
         // Configure velocity PIDF coefficients for accurate velocity control
         // These values may need tuning based on your specific motor and load
-        PIDFCoefficients velocityPIDF = new PIDFCoefficients(30.0, 0.1, 10.0, 12.0);
+        // Increased P and F slightly for better response at high RPMs
+        PIDFCoefficients velocityPIDF = new PIDFCoefficients(35.0, 0.15, 12.0, 15.0);
         leftShooterMotor.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, velocityPIDF);
         rightShooterMotor.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, velocityPIDF);
     }
@@ -162,14 +164,49 @@ public class ShooterSubsystem {
     }
 
     /**
-     * Check if shooter is at target RPM (within tolerance)
+     * Check if shooter is at target RPM (within tolerance).
+     * 
+     * Uses either fixed RPM tolerance or percentage-based tolerance (2% of target).
+     * Percentage tolerance is more accurate for high RPMs.
      * 
      * @return True if current RPM is within tolerance of target RPM
      */
     public boolean isAtTargetRPM() {
+        if (targetRPM == 0)
+            return false;
+
         double currentRPM = getCurrentRPM();
         double error = Math.abs(currentRPM - targetRPM);
-        return error <= rpmTolerance;
+
+        if (usePercentageTolerance) {
+            // Use percentage-based tolerance (2% of target RPM)
+            // More accurate for high RPMs (e.g., 2% of 6000 RPM = 120 RPM tolerance)
+            double percentageTolerance = targetRPM * 0.02; // 2% tolerance
+            return error <= percentageTolerance;
+        } else {
+            // Use fixed RPM tolerance
+            return error <= rpmTolerance;
+        }
+    }
+
+    /**
+     * Get the current RPM error (how far from target).
+     * 
+     * @return Absolute difference between current and target RPM
+     */
+    public double getRPMError() {
+        return Math.abs(getCurrentRPM() - targetRPM);
+    }
+
+    /**
+     * Get the current RPM error as a percentage of target.
+     * 
+     * @return Percentage error (0-100)
+     */
+    public double getRPMErrorPercentage() {
+        if (targetRPM == 0)
+            return 100.0;
+        return (getRPMError() / targetRPM) * 100.0;
     }
 
     /**
@@ -216,12 +253,22 @@ public class ShooterSubsystem {
     }
 
     /**
-     * Set RPM tolerance for "at target" checking
+     * Set RPM tolerance for "at target" checking.
      * 
-     * @param tolerance RPM tolerance (default 50 RPM)
+     * @param tolerance RPM tolerance (default 100 RPM)
      */
     public void setRPMTolerance(double tolerance) {
         this.rpmTolerance = Math.abs(tolerance);
+    }
+
+    /**
+     * Enable or disable percentage-based tolerance.
+     * When enabled, tolerance is 2% of target RPM (more accurate for high RPMs).
+     * 
+     * @param enabled True to use percentage tolerance, false for fixed tolerance
+     */
+    public void setPercentageTolerance(boolean enabled) {
+        this.usePercentageTolerance = enabled;
     }
 
     /**
@@ -362,14 +409,33 @@ public class ShooterSubsystem {
     public void updateTelemetry() {
         if (telemetry != null) {
             double currentRPM = getCurrentRPM();
-            double rpmError = Math.abs(currentRPM - targetRPM);
+            double rpmError = getRPMError();
+            double errorPercentage = getRPMErrorPercentage();
+            boolean atTarget = isAtTargetRPM();
 
-            telemetry.addData("Shooter Status", isAtTargetRPM() ? "READY" : "SPINNING UP");
+            // Status with clear indication
+            String status = atTarget ? "READY ✓" : "SPINNING UP...";
+            telemetry.addData("Shooter Status", status);
             telemetry.addData("Velocity Control", useVelocityControl ? "ENABLED" : "DISABLED");
+
+            // RPM information
             telemetry.addData("Current RPM", "%.0f", currentRPM);
             telemetry.addData("Target RPM", "%.0f", targetRPM);
-            telemetry.addData("RPM Error", "%.0f", rpmError);
-            telemetry.addData("At Target", isAtTargetRPM() ? "YES" : "NO");
+            telemetry.addData("RPM Error", "%.0f RPM (%.1f%%)", rpmError, errorPercentage);
+
+            // At target indicator
+            if (atTarget) {
+                telemetry.addData("At Target", "YES ✓");
+            } else {
+                // Show how close it is
+                if (errorPercentage < 5.0) {
+                    telemetry.addData("At Target", "CLOSE (%.1f%% off)", errorPercentage);
+                } else if (errorPercentage < 10.0) {
+                    telemetry.addData("At Target", "GETTING CLOSE (%.1f%% off)", errorPercentage);
+                } else {
+                    telemetry.addData("At Target", "NO (%.1f%% off)", errorPercentage);
+                }
+            }
 
             if (useVelocityControl) {
                 telemetry.addData("Left Velocity", "%.1f ticks/s", leftShooterMotor.getVelocity());
@@ -380,6 +446,14 @@ public class ShooterSubsystem {
             }
 
             telemetry.addData("Wheel Speed", "%.1f in/s", currentRPM * WHEEL_CIRCUMFERENCE / 60.0);
+
+            // Show tolerance being used
+            if (usePercentageTolerance && targetRPM > 0) {
+                double tolerance = targetRPM * 0.02;
+                telemetry.addData("Tolerance", "%.0f RPM (2%% of target)", tolerance);
+            } else {
+                telemetry.addData("Tolerance", "%.0f RPM (fixed)", rpmTolerance);
+            }
         }
     }
 }
