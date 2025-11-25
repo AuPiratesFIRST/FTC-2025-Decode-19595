@@ -30,9 +30,9 @@ public class SpindexerSubsystem {
 
     // PID coefficients - tune these for your specific setup
     // Lowered kP and increased kD to prevent overshoot and oscillation
-    private double kP = 0.02; // Proportional gain (reduced from 0.05)
-    private double kI = 0.0005; // Integral gain (reduced from 0.001)
-    private double kD = 0.03; // Derivative gain (increased from 0.01 for better damping)
+    private double kP = 0.001; // Increased to react faster to large errors
+    private double kI = 0.001; // Slight integral to clear steady-state error
+    private double kD = 0.005; // Lowered to avoid derivative spikes on wrap
 
     // PID state variables
     private double integral = 0;
@@ -43,7 +43,7 @@ public class SpindexerSubsystem {
     private static final int POSITION_TOLERANCE = 15; // Increased tolerance for better stopping
 
     // Speed multiplier for testing (0.25 = quarter speed)
-    private static final double SPEED_MULTIPLIER = 0.25;
+    private static final double SPEED_MULTIPLIER = 0.1;
 
     // Minimum power threshold - motor won't move below this (prevents jitter)
     private static final double MIN_POWER_THRESHOLD = 0.05;
@@ -93,7 +93,7 @@ public class SpindexerSubsystem {
      * @param position SpindexerPosition enum value
      */
     public void goToPosition(SpindexerPosition position) {
-        targetPosition = position.getTicks();
+        targetPosition = normalizeTicks(position.getTicks());
         integral = 0; // Reset integral when changing targets
         lastError = 0;
     }
@@ -136,8 +136,8 @@ public class SpindexerSubsystem {
      * correction.
      */
     public void update() {
-        int currentPosition = spindexerMotor.getCurrentPosition();
-        double error = targetPosition - currentPosition;
+        int currentPosition = normalizeTicks(spindexerMotor.getCurrentPosition());
+        double error = shortestError(targetPosition, currentPosition);
 
         // Check if at position - stop motor if within tolerance
         if (isAtPosition()) {
@@ -187,7 +187,7 @@ public class SpindexerSubsystem {
         double output = proportional + integralTerm - derivative;
 
         // Clip output to valid motor power range [-1.0, 1.0]
-        output = Range.clip(output, -1.0, 1.0);
+        output = Range.clip(output, -1.0, 0.5);
 
         // Apply speed multiplier for testing (quarter speed)
         output *= SPEED_MULTIPLIER;
@@ -227,8 +227,8 @@ public class SpindexerSubsystem {
      * @return True if within tolerance
      */
     public boolean isAtPosition() {
-        int currentPosition = spindexerMotor.getCurrentPosition();
-        return Math.abs(currentPosition - targetPosition) <= POSITION_TOLERANCE;
+        int currentPosition = normalizeTicks(spindexerMotor.getCurrentPosition());
+        return Math.abs(shortestError(targetPosition, currentPosition)) <= POSITION_TOLERANCE;
     }
 
     /**
@@ -237,7 +237,7 @@ public class SpindexerSubsystem {
      * @return Current encoder position
      */
     public int getCurrentPosition() {
-        return spindexerMotor.getCurrentPosition();
+        return normalizeTicks(spindexerMotor.getCurrentPosition());
     }
 
     /**
@@ -314,5 +314,30 @@ public class SpindexerSubsystem {
             telemetry.addData("At Position", isAtPosition());
             telemetry.addData("PID Coefficients", "P: %.3f, I: %.3f, D: %.3f", kP, kI, kD);
         }
+    }
+
+    /**
+     * Normalize an absolute encoder reading into the native 0-TICKS_PER_REV window.
+     */
+    private int normalizeTicks(int ticks) {
+        int normalized = ticks % (int) TICKS_PER_REVOLUTION;
+        if (normalized < 0) {
+            normalized += TICKS_PER_REVOLUTION;
+        }
+        return normalized;
+    }
+
+    /**
+     * Return the shortest signed error between two positions accounting for wrap.
+     */
+    private double shortestError(int target, int current) {
+        int rawError = target - current;
+        double revolutions = TICKS_PER_REVOLUTION;
+        if (rawError > revolutions / 2) {
+            rawError -= revolutions;
+        } else if (rawError < -revolutions / 2) {
+            rawError += revolutions;
+        }
+        return rawError;
     }
 }
