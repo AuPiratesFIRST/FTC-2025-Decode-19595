@@ -15,18 +15,20 @@ public class SpindexerSubsystem {
     private final DcMotorEx spindexerMotor;
     private final Telemetry telemetry;
 
-    // Motor specifications
-    private static final double MOTOR_MAX_RPM = 312.0; // GoBILDA 12 RPM motor
-    private static final double TICKS_PER_REVOLUTION = 2150.8; // Standard GoBILDA encoder ticks
-    private static final double DEGREES_PER_TICK = 360.0 / TICKS_PER_REVOLUTION;
+    // Motor specifications - GoBILDA RS-555 with 19.2:1 planetary gearbox
+    private static final double MOTOR_MAX_RPM = 312.0; // No-load speed at 12VDC
+    // Encoder: 28 PPR at motor shaft, 537.7 PPR at output shaft
+    // Quadrature encoding: 537.7 PPR × 4 = 2150.8 ticks per revolution at output
+    // shaft
+    private static final double TICKS_PER_REVOLUTION = 2150.8; // Quadrature encoder ticks at output shaft
+    private static final double DEGREES_PER_TICK = 360.0 / TICKS_PER_REVOLUTION; // ≈ 0.167 degrees per tick
 
     // Three positions for three active arts (in encoder ticks)
-    // These values should be calibrated based on your physical setup
     // Position calculations: evenly spaced at 120° intervals (360° / 3 = 120°)
+    // Each position is 120° apart = 2150.8 / 3 ≈ 716.93 ticks
     private static final int POSITION_1_TICKS = 0; // First art position (0°)
-    private static final int POSITION_2_TICKS = (int) (TICKS_PER_REVOLUTION / 3.0); // 120 degrees (560/3 ≈ 187 ticks)
-    private static final int POSITION_3_TICKS = (int) (TICKS_PER_REVOLUTION * 2.0 / 3.0); // 240 degrees (560×2/3 ≈ 373
-                                                                                          // ticks)
+    private static final int POSITION_2_TICKS = (int) (TICKS_PER_REVOLUTION / 3.0); // 120° (≈ 717 ticks)
+    private static final int POSITION_3_TICKS = (int) (TICKS_PER_REVOLUTION * 2.0 / 3.0); // 240° (≈ 1434 ticks)
 
     // PID coefficients - tune these for your specific setup
     // Start with these values and tune using the systematic process:
@@ -129,20 +131,26 @@ public class SpindexerSubsystem {
      * Update PID control - call this in your main loop.
      * 
      * Implements PID (Proportional-Integral-Derivative) control algorithm:
-     * - P term: error × kP (proportional to current error, provides initial response)
+     * - P term: error × kP (proportional to current error, provides initial
+     * response)
      * - I term: Σ(error) × kI (eliminates steady-state error, with anti-windup)
-     * - D term: (error - lastError) × kD (damping term, reduces overshoot and oscillation)
+     * - D term: (error - lastError) × kD (damping term, reduces overshoot and
+     * oscillation)
      * 
      * Output equation: power = (error × kP) + (integral × kI) + (derivative × kD)
-     * When error is decreasing (approaching target), derivative is negative, reducing power.
+     * When error is decreasing (approaching target), derivative is negative,
+     * reducing power.
      * This provides smooth deceleration and prevents overshoot.
      * 
      * Tuning Process:
      * 1. Start with kI=0, kD=0. Increase kP until system overshoots/oscillates
-     * 2. Keep kP from step 1. Increase kD until oscillation is dampened and system settles smoothly
-     * 3. Keep kP and kD from step 2. Add small kI (0.0001-0.005) to eliminate steady-state error
+     * 2. Keep kP from step 1. Increase kD until oscillation is dampened and system
+     * settles smoothly
+     * 3. Keep kP and kD from step 2. Add small kI (0.0001-0.005) to eliminate
+     * steady-state error
      * 
-     * Anti-windup: limits integral accumulation to ±500 to prevent excessive correction.
+     * Anti-windup: limits integral accumulation to ±500 to prevent excessive
+     * correction.
      */
     public void update() {
         int currentPosition = normalizeTicks(spindexerMotor.getCurrentPosition());
@@ -189,12 +197,14 @@ public class SpindexerSubsystem {
 
         // Derivative term: rate of change of error (damping)
         // D = (error - lastError) × kD
-        // When error is decreasing (approaching target), this is negative, which should reduce power
+        // When error is decreasing (approaching target), this is negative, which should
+        // reduce power
         double derivative = (error - lastError) * kD;
         lastError = error;
 
         // PID output equation: output = P + I + D
-        // D is added because when error decreases, derivative is negative, reducing power (damping)
+        // D is added because when error decreases, derivative is negative, reducing
+        // power (damping)
         // This provides smooth deceleration as the system approaches the target
         double output = proportional + integralTerm + derivative;
 
