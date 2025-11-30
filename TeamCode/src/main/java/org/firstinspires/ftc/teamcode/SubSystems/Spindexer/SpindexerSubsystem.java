@@ -17,7 +17,7 @@ public class SpindexerSubsystem {
 
     // Motor specifications
     private static final double MOTOR_MAX_RPM = 312.0; // GoBILDA 12 RPM motor
-    private static final double TICKS_PER_REVOLUTION = 560.0; // Standard GoBILDA encoder ticks
+    private static final double TICKS_PER_REVOLUTION = 2150.8; // Standard GoBILDA encoder ticks
     private static final double DEGREES_PER_TICK = 360.0 / TICKS_PER_REVOLUTION;
 
     // Three positions for three active arts (in encoder ticks)
@@ -29,10 +29,14 @@ public class SpindexerSubsystem {
                                                                                           // ticks)
 
     // PID coefficients - tune these for your specific setup
-    // Lowered kP and increased kD to prevent overshoot and oscillation
-    private double kP = 0.001; // Increased to react faster to large errors
-    private double kI = 0.001; // Slight integral to clear steady-state error
-    private double kD = 0.005; // Lowered to avoid derivative spikes on wrap
+    // Start with these values and tune using the systematic process:
+    // 1. Tune kP first (increase until overshoot occurs)
+    // 2. Tune kD to dampen oscillation (increase until smooth settling)
+    // 3. Tune kI last (small values, 0.0001-0.005, to eliminate steady-state error)
+    // Recommended starting ranges: kP: 0.005-0.05, kD: 0.01-0.2, kI: 0.0001-0.005
+    private double kP = 0.0010; // Start here for P-term tuning
+    private double kI = 0.0; // Start at 0, add later for I-term tuning
+    private double kD = 0.02; // Start here for D-term tuning after P is set
 
     // PID state variables
     private double integral = 0;
@@ -125,15 +129,20 @@ public class SpindexerSubsystem {
      * Update PID control - call this in your main loop.
      * 
      * Implements PID (Proportional-Integral-Derivative) control algorithm:
-     * - P term: error × kP (proportional to current error)
+     * - P term: error × kP (proportional to current error, provides initial response)
      * - I term: Σ(error) × kI (eliminates steady-state error, with anti-windup)
-     * - D term: (error - lastError) × kD (reduces overshoot and oscillation)
+     * - D term: (error - lastError) × kD (damping term, reduces overshoot and oscillation)
      * 
-     * Output equation: power = (error × kP) + (integral × kI) - (derivative × kD)
-     * The derivative is subtracted because it represents rate of change (damping).
+     * Output equation: power = (error × kP) + (integral × kI) + (derivative × kD)
+     * When error is decreasing (approaching target), derivative is negative, reducing power.
+     * This provides smooth deceleration and prevents overshoot.
      * 
-     * Anti-windup: limits integral accumulation to ±1000 to prevent excessive
-     * correction.
+     * Tuning Process:
+     * 1. Start with kI=0, kD=0. Increase kP until system overshoots/oscillates
+     * 2. Keep kP from step 1. Increase kD until oscillation is dampened and system settles smoothly
+     * 3. Keep kP and kD from step 2. Add small kI (0.0001-0.005) to eliminate steady-state error
+     * 
+     * Anti-windup: limits integral accumulation to ±500 to prevent excessive correction.
      */
     public void update() {
         int currentPosition = normalizeTicks(spindexerMotor.getCurrentPosition());
@@ -171,20 +180,23 @@ public class SpindexerSubsystem {
             integral = 0;
         }
         // Anti-windup: limit integral to prevent excessive correction
-        if (integral > 500)
+        if (integral > 500) {
             integral = 500;
-        if (integral < -500)
+        } else if (integral < -500) {
             integral = -500;
+        }
         double integralTerm = integral * kI;
 
         // Derivative term: rate of change of error (damping)
-        // D = (error - lastError) × kD (reduces overshoot and oscillation)
+        // D = (error - lastError) × kD
+        // When error is decreasing (approaching target), this is negative, which should reduce power
         double derivative = (error - lastError) * kD;
         lastError = error;
 
-        // PID output equation: output = P + I - D
-        // D is subtracted because it represents damping (slows down movement)
-        double output = proportional + integralTerm - derivative;
+        // PID output equation: output = P + I + D
+        // D is added because when error decreases, derivative is negative, reducing power (damping)
+        // This provides smooth deceleration as the system approaches the target
+        double output = proportional + integralTerm + derivative;
 
         // Clip output to valid motor power range [-1.0, 1.0]
         output = Range.clip(output, -1.0, 0.5);
@@ -213,11 +225,11 @@ public class SpindexerSubsystem {
             telemetry.addData("D Term", "%.3f (kD=%.3f)", derivative, kD);
             telemetry.addData("", "");
             telemetry.addData("PID Tuning Instructions:", "");
-            telemetry.addData("1. If oscillating/overshooting:", "Increase kD, decrease kP");
-            telemetry.addData("2. If too slow/not reaching target:", "Increase kP");
-            telemetry.addData("3. If steady-state error:", "Increase kI");
-            telemetry.addData("4. If integral windup:", "Decrease kI or increase kD");
-            telemetry.addData("5. Current Speed:", "%.0f%% (testing mode)", SPEED_MULTIPLIER * 100);
+            telemetry.addData("Step 1 - Tune P:", "Set kI=0, kD=0. Increase kP until overshoot occurs");
+            telemetry.addData("Step 2 - Tune D:", "Keep kP from Step 1. Increase kD until smooth settling");
+            telemetry.addData("Step 3 - Tune I:", "Keep kP, kD. Add small kI (0.0001-0.005) if needed");
+            telemetry.addData("Recommended Ranges:", "kP: 0.005-0.05, kD: 0.01-0.2, kI: 0.0001-0.005");
+            telemetry.addData("Current Speed:", "%.0f%% (testing mode)", SPEED_MULTIPLIER * 100);
         }
     }
 
