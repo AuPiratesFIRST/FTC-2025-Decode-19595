@@ -15,6 +15,8 @@ public class SpindexerPIDFTest extends LinearOpMode {
     private boolean lastA = false;
     private boolean lastB = false;
 
+
+
     @Override
     public void runOpMode() throws InterruptedException {
 
@@ -38,7 +40,7 @@ public class SpindexerPIDFTest extends LinearOpMode {
             // MODE TOGGLE
             //-------------------------------
             if (gamepad1.a && !lastA) {
-                spindexer.setIntakeMode(!gamepad1.left_bumper);   // A toggles mode
+                spindexer.setIntakeMode(!spindexer.isIntakeMode());   // A toggles mode
             }
             lastA = gamepad1.a;
 
@@ -59,8 +61,7 @@ public class SpindexerPIDFTest extends LinearOpMode {
             // TELEMETRY
             //-------------------------------
             telemetry.addLine("===== SPINDEXER =====");
-            telemetry.addData("Mode", "(A toggles)  " + (gamepad1.left_bumper ? "OUTTAKE" : "INTAKE"));
-            telemetry.addData("OpMode Input", "B = advance");
+            telemetry.addData("Controls", "A = Toggle Mode | B = Advance");
 
             telemetry.update();
 

@@ -2,6 +2,7 @@ package org.firstinspires.ftc.teamcode.SubSystems.Spindexer;
 
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.hardware.PIDFCoefficients;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
@@ -22,19 +23,18 @@ public class SpindexerSubsystemPIDF {
     private static final int POS_120 = (int)(TICKS_PER_REV / 3.0);
     private static final int POS_240 = (int)(TICKS_PER_REV * 2.0 / 3.0);
 
-    private static final int[] INTAKE_POSITIONS = { 0, POS_120, POS_240 };
-
-    // OUTTAKE measured & normalized positions
-    private static final int[] OUTTAKE_POSITIONS = {
-            normalize(-90),
-            normalize(-265),
-            normalize(-434)
+    private static final int[] INTAKE_POSITIONS = {
+            (int)TICKS_PER_REV,
+            POS_120,
+            POS_240
     };
 
-    private static int normalize(int raw) {
-        int v = raw % (int)TICKS_PER_REV;
-        return (v < 0 ? v + (int)TICKS_PER_REV : v);
-    }
+    // OUTTAKE measured positions
+    private static final int[] OUTTAKE_POSITIONS = {
+            90,
+            265,
+            434
+    };
 
     // Ball settling offset (tune for your radius)
     private static final int BALL_SETTLE_TICKS = 34;
@@ -62,13 +62,16 @@ public class SpindexerSubsystemPIDF {
     private boolean shooterSpinUpPending = false;
     private final double SHOOT_POWER = 0.7;
 
+    // 1. Private field to store the initial position.
+    private int initialPosition;
+
     public SpindexerSubsystemPIDF(HardwareMap hw, Telemetry telemetry, ShooterSubsystem shooter) {
         this.telemetry = telemetry;
         this.shooter = shooter;
 
         motor = hw.get(DcMotorEx.class, "Spindexer");
 
-        motor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         motor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
         motor.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, PIDF);
@@ -78,6 +81,9 @@ public class SpindexerSubsystemPIDF {
         absoluteTarget = 0;
         motor.setTargetPosition(absoluteTarget);
         motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+
+        // Initialize the initial position to current motor position
+        initialPosition = motor.getCurrentPosition();
     }
 
     // --------------------------------------------------------------------------
@@ -90,6 +96,10 @@ public class SpindexerSubsystemPIDF {
         }
     }
 
+    public boolean isIntakeMode() {
+        return intakeMode;
+    }
+
     // --------------------------------------------------------------------------
     // GET CURRENT TARGET ARRAY
     // --------------------------------------------------------------------------
@@ -100,15 +110,22 @@ public class SpindexerSubsystemPIDF {
     // --------------------------------------------------------------------------
     // CHECK TARGET REACHED
     // --------------------------------------------------------------------------
-    private boolean atTarget(int t) {
-        return Math.abs(motor.getCurrentPosition() - t) <= POSITION_TOLERANCE;
+    private boolean atTarget(int tar) {
+        int currPos = motor.getCurrentPosition();
+        boolean atTarget = Math.abs(currPos - initialPosition) >= Math.abs(tar);
+        telemetry.addData("AtTarget", atTarget);
+        telemetry.addData("CurrentPos", currPos);
+        telemetry.addData("InitPos", initialPosition);
+        telemetry.addData("InitPosAbs", Math.abs(initialPosition));
+        telemetry.addData("tar", tar);
+        telemetry.addData("DistanceMoved", Math.abs(currPos - initialPosition));
+        return atTarget;
     }
 
     // --------------------------------------------------------------------------
     // ADVANCE TO NEXT POSITION (CALLED FROM OP-MODE)
     // --------------------------------------------------------------------------
     public void advance() {
-
         if (moving || ballSettling || shooterSpinUpPending)
             return;
 
@@ -116,20 +133,24 @@ public class SpindexerSubsystemPIDF {
         index = (index + 1) % 3;
 
         int[] arr = getArray();
-        int nextNorm = arr[index];
+        int delta = arr[index];  // Desired relative distance to move
 
-        int raw = motor.getCurrentPosition();
-        int norm = raw % (int)TICKS_PER_REV;
-        if (norm < 0) norm += (int)TICKS_PER_REV;
+        // Capture current position and calculate the absolute target
+        initialPosition = motor.getCurrentPosition(); // Capture current position
 
-        int diff = nextNorm - norm;
-        if (diff < 0)
-            diff += (int)TICKS_PER_REV;
+        // Convert delta (relative) into an absolute encoder target
+        absoluteTarget = initialPosition - delta; // or +delta if moving in the forward direction
 
-        absoluteTarget = raw + diff;
+        // Set the target position
         motor.setTargetPosition(absoluteTarget);
 
+        // Ensure that the motor is in RUN_TO_POSITION mode and set power before moving
+        motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+
+        // Set motor power for the move (0.4 for intake, 0.8 for outtake)
         motor.setPower(intakeMode ? 0.4 : 0.8);
+
+        // Mark the movement as started
         moving = true;
     }
 
@@ -137,7 +158,6 @@ public class SpindexerSubsystemPIDF {
     // UPDATE LOOP (CALL EVERY CYCLE)
     // --------------------------------------------------------------------------
     public void update() {
-
         // -------------------------------
         // MOVEMENT COMPLETE
         // -------------------------------
@@ -178,6 +198,10 @@ public class SpindexerSubsystemPIDF {
         telemetry.addData("Mode", intakeMode ? "INTAKE" : "OUTTAKE");
         telemetry.addData("Index", index);
         telemetry.addData("RawPos", motor.getCurrentPosition());
+        int[] arr = getArray();
+        if (index < arr.length) {
+            telemetry.addData("TargetPos", arr[index]);
+        }
         telemetry.addData("AbsTarget", absoluteTarget);
         telemetry.addData("Busy", motor.isBusy());
         telemetry.addData("Moving", moving);

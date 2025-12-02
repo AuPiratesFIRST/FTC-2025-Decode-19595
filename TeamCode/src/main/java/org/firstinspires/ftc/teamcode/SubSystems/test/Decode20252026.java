@@ -6,7 +6,7 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import org.firstinspires.ftc.robotcore.external.JavaUtil;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
 
-@TeleOp(name = "Decode20252026 (SPINDEXER CUMULATIVE FIX)")
+@TeleOp(name = "DecodeChris20252026 (SPINDEXER CUMULATIVE FIX)")
 public class Decode20252026 extends LinearOpMode {
 
     private DcMotor rightFront, rightRear, leftFront, leftRear;
