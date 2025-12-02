@@ -138,6 +138,12 @@ public class SensorColorTelemetry extends LinearOpMode {
 
     /**
      * Map HSV to ArtifactColor. Uses hue primarily. Returns null if confidence is low.
+     * 
+     * Hue ranges (HSV):
+     * - Green: 60-180 degrees
+     * - Purple: 240-300 degrees (wraps around at 360, so also 0-60 if very purple)
+     * 
+     * For DECODE artifacts, we expect only GREEN or PURPLE, so we use these specific ranges.
      */
     private ArtifactColor mapHueToArtifact(float[] hsv, NormalizedRGBA colors) {
         float hue = hsv[0];
@@ -149,13 +155,29 @@ public class SensorColorTelemetry extends LinearOpMode {
             return null; // too dim/unsaturated to decide
         }
 
-        // Hue ranges: approximate
-        // Green: ~60-180
-        // Purple: ~240-320 (we'll treat anything outside green as purple for this simple mapping)
+        // Normalize hue to 0-360 range (Android Color.colorToHSV already does this)
+        // Green: 60-180 degrees
+        // Purple: 240-300 degrees (or 0-60 if very purple/magenta)
         if (hue >= 60f && hue <= 180f) {
             return ArtifactColor.GREEN;
-        } else {
+        } else if (hue >= 240f && hue <= 300f) {
             return ArtifactColor.PURPLE;
+        } else if (hue >= 0f && hue < 60f) {
+            // Check if it's purple/magenta (low hue) or yellow/red (mid hue)
+            // Purple artifacts tend to have higher blue component
+            if (colors.blue > colors.red && colors.blue > colors.green * 0.8) {
+                return ArtifactColor.PURPLE;
+            }
+            // Otherwise, likely yellow/red, not an artifact color - return null
+            return null;
+        } else {
+            // Hue between 180-240 (cyan/blue) or 300-360 (magenta/pink)
+            // For DECODE, these shouldn't be artifacts, but if we see high blue, might be purple
+            if (hue > 300f && colors.blue > colors.red && colors.blue > colors.green * 0.8) {
+                return ArtifactColor.PURPLE;
+            }
+            // Otherwise, not a recognized artifact color
+            return null;
         }
     }
 }
