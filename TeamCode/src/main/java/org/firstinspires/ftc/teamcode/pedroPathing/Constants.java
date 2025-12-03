@@ -16,44 +16,36 @@ public class Constants {
 
     public static FollowerConstants followerConstants = new FollowerConstants()
             .mass(10.44)
-            .forwardZeroPowerAcceleration(-41.278)
-            .lateralZeroPowerAcceleration(-59.7819)
-            .useSecondaryTranslationalPIDF(false)
-            .useSecondaryHeadingPIDF(false)
-            .useSecondaryDrivePIDF(false)
-            .centripetalScaling(0.0005)
-            .translationalPIDFCoefficients(new PIDFCoefficients(0.1, 0, 0.01, 0))
-            .headingPIDFCoefficients(new PIDFCoefficients(2, 0, 0.1, 0))
-            .drivePIDFCoefficients(new FilteredPIDFCoefficients(0.1, 0, 0, 0.6, 0));
 
+            ;
     public static MecanumConstants driveConstants = new MecanumConstants()
             .maxPower(1)
-            .leftFrontMotorName("leftFront")
-            .leftRearMotorName("leftRear")
             .rightFrontMotorName("rightFront")
             .rightRearMotorName("rightRear")
+            .leftRearMotorName("leftRear")
+            .leftFrontMotorName("leftFront")
             .leftFrontMotorDirection(DcMotorSimple.Direction.REVERSE)
             .leftRearMotorDirection(DcMotorSimple.Direction.REVERSE)
             .rightFrontMotorDirection(DcMotorSimple.Direction.FORWARD)
             .rightRearMotorDirection(DcMotorSimple.Direction.FORWARD)
-            .xVelocity(57.8741)
-            .yVelocity(52.295);
-
+            .xVelocity()
+            ;
     public static DriveEncoderConstants localizerConstants =
             new DriveEncoderConstants()
-                    .forwardTicksToInches(0.0216162)
-                    .strafeTicksToInches(2.5944851 )
-                    .turnTicksToInches(0.02669986)
-                    .robotWidth(15.1)
-                    .robotLength(14)
+                    .robotWidth(17)
+                    .robotLength(17)
+                    .leftFrontMotorName("leftFront")
+                    .rightFrontMotorName("rightFront")
+                    .leftRearMotorName("leftRear")
+                    .rightRearMotorName("rightRear")
                     .leftFrontEncoderDirection(Encoder.REVERSE)
                     .leftRearEncoderDirection(Encoder.REVERSE)
                     .rightFrontEncoderDirection(Encoder.FORWARD)
                     .rightRearEncoderDirection(Encoder.FORWARD)
-                    .leftFrontMotorName("leftFront")
-                    .rightFrontMotorName("rightFront")
-                    .leftRearMotorName("leftRear")
-                    .rightRearMotorName("rightRear");
+                    .forwardTicksToInches(0.014441448641714046)
+                    .strafeTicksToInches(0.010580324284229883)
+                    .turnTicksToInches(0.01372315156703925)
+                    ;
 
     public static PathConstraints pathConstraints = new PathConstraints(
             0.995,
