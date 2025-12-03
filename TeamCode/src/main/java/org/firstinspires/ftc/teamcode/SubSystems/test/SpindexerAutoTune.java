@@ -2,8 +2,8 @@ package org.firstinspires.ftc.teamcode.SubSystems.test;
 
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
-import org.firstinspires.ftc.robotcore.external.Telemetry;
-import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem;
+
+import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 
 /**
  * Automatic PID tuning test for Spindexer subsystem.
@@ -31,7 +31,7 @@ import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem;
 @TeleOp(name = "Spindexer Auto-Tune", group = "Test")
 public class SpindexerAutoTune extends LinearOpMode {
 
-    private SpindexerSubsystem spindexer;
+    private OldSpindexerSubsystem spindexer;
 
     // Tuning state
     private enum TuningPhase {
@@ -113,7 +113,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         telemetry.update();
 
         // Initialize spindexer subsystem
-        spindexer = new SpindexerSubsystem(hardwareMap, telemetry);
+        spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
 
         // Reset to known position
         spindexer.reset();
@@ -121,7 +121,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         startPosition = spindexer.getCurrentPosition();
 
         // Set initial target (test position 2, which is 120 degrees away)
-        targetPosition = SpindexerSubsystem.SpindexerPosition.POSITION_2.getTicks();
+        targetPosition = OldSpindexerSubsystem.SpindexerPosition.POSITION_2.getTicks();
 
         telemetry.addData("Status", "Ready for Auto-Tuning");
         telemetry.addLine();
@@ -290,7 +290,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         spindexer.setPIDCoefficients(currentP, currentI, currentD);
 
         // Set target position
-        spindexer.goToPosition(SpindexerSubsystem.SpindexerPosition.POSITION_2);
+        spindexer.goToPosition(OldSpindexerSubsystem.SpindexerPosition.POSITION_2);
 
         // Reset test metrics
         metrics.reset();

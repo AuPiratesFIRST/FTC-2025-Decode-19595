@@ -2,7 +2,6 @@ package org.firstinspires.ftc.teamcode.SubSystems.Spindexer;
 
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
-import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.hardware.PIDFCoefficients;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
@@ -71,19 +70,28 @@ public class SpindexerSubsystemPIDF {
 
         motor = hw.get(DcMotorEx.class, "Spindexer");
 
-        motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         motor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
+        // Set initial position and target before switching to RUN_TO_POSITION mode
+        initialPosition = motor.getCurrentPosition();  // Capture the current position of the motor
+        absoluteTarget = initialPosition;  // Set the initial target to current position
+
+        // Set PID coefficients
         motor.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, PIDF);
 
-        motor.setDirection(DcMotor.Direction.REVERSE);
+        motor.setDirection(DcMotor.Direction.REVERSE);  // Ensure correct direction
 
-        absoluteTarget = 0;
-        motor.setTargetPosition(absoluteTarget);
+        // Set the target position
+        motor.setTargetPosition(0);
+
+        // Now switch to RUN_TO_POSITION mode
         motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
 
-        // Initialize the initial position to current motor position
-        initialPosition = motor.getCurrentPosition();
+        motor.setPower(0);  // Start motor with no power initially
+
+        // Initialization is complete
+        telemetry.addData("Spindexer Initialized", "Ready for operation.");
+        telemetry.update();
     }
 
     // --------------------------------------------------------------------------
@@ -112,13 +120,15 @@ public class SpindexerSubsystemPIDF {
     // --------------------------------------------------------------------------
     private boolean atTarget(int tar) {
         int currPos = motor.getCurrentPosition();
-        boolean atTarget = Math.abs(currPos - initialPosition) >= Math.abs(tar);
+        int targetDistance = Math.abs(currPos - tar);
+        boolean atTarget = targetDistance <= POSITION_TOLERANCE;  // Use a tolerance to account for slight errors
+
         telemetry.addData("AtTarget", atTarget);
         telemetry.addData("CurrentPos", currPos);
-        telemetry.addData("InitPos", initialPosition);
-        telemetry.addData("InitPosAbs", Math.abs(initialPosition));
-        telemetry.addData("tar", tar);
-        telemetry.addData("DistanceMoved", Math.abs(currPos - initialPosition));
+        telemetry.addData("TargetPos", tar);
+        telemetry.addData("TargetDistance", targetDistance);
+        telemetry.addData("PositionTolerance", POSITION_TOLERANCE);
+
         return atTarget;
     }
 
@@ -159,37 +169,38 @@ public class SpindexerSubsystemPIDF {
     // --------------------------------------------------------------------------
     public void update() {
         // -------------------------------
-        // MOVEMENT COMPLETE
+        // MOVEMENT COMPLETE (Target Reached)
         // -------------------------------
         if (moving && atTarget(absoluteTarget)) {
-            moving = false;
-            motor.setPower(0);
+            moving = false;  // Stop the movement flag
+            motor.setPower(0);  // Stop the motor once the target is reached
 
             if (intakeMode) {
-                // BALL SETTLING
-                settlingTarget = motor.getCurrentPosition() - BALL_SETTLE_TICKS;
+                // Ball settling small correction after intake
+                settlingTarget = motor.getCurrentPosition() - BALL_SETTLE_TICKS;  // Adjust the target slightly
                 motor.setTargetPosition(settlingTarget);
-                motor.setPower(0.4);
-                ballSettling = true;
+                motor.setPower(0.4);  // Low power for settling
+                ballSettling = true;  // Ball settling is active
             } else {
+                // Start shooter spin-up if in outtake mode
                 shooter.setPower(SHOOT_POWER);
                 shooterSpinUpPending = true;
             }
         }
 
         // -------------------------------
-        // BALL SETTLING DONE
+        // BALL SETTLING DONE (After Intake)
         // -------------------------------
         if (ballSettling && atTarget(settlingTarget)) {
-            ballSettling = false;
-            motor.setPower(0);
+            ballSettling = false;  // Stop settling
+            motor.setPower(0);  // Ensure motor is stopped
         }
 
         // -------------------------------
         // SHOOTER READY
         // -------------------------------
         if (shooterSpinUpPending && shooter.isAtTargetRPM()) {
-            shooterSpinUpPending = false;
+            shooterSpinUpPending = false;  // Shooter is ready, stop pending flag
         }
 
         // -------------------------------

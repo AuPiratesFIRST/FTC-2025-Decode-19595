@@ -5,7 +5,6 @@ import com.pedropathing.geometry.BezierCurve;
 import com.pedropathing.geometry.BezierLine;
 import com.pedropathing.geometry.Pose;
 import com.pedropathing.paths.PathChain;
-import org.firstinspires.ftc.teamcode.Auto.Timer;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 
@@ -13,7 +12,7 @@ import org.firstinspires.ftc.teamcode.pedroPathing.Constants;
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
-import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem;
+import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
 
 /**
@@ -38,7 +37,7 @@ public class RedAllianceAuto extends OpMode {
     private DriveSubsystem drive;
     private IntakeSubsystem intake;
     private ShooterSubsystem shooter;
-    private SpindexerSubsystem spindexer;
+    private OldSpindexerSubsystem spindexer;
     private AprilTagNavigator aprilTag;
     
     // State management
@@ -91,7 +90,7 @@ public class RedAllianceAuto extends OpMode {
         drive = new DriveSubsystem(hardwareMap, telemetry);
         intake = new IntakeSubsystem(hardwareMap, telemetry);
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
-        spindexer = new SpindexerSubsystem(hardwareMap, telemetry);
+        spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
         
         // Build paths

@@ -3,7 +3,8 @@ package org.firstinspires.ftc.teamcode.SubSystems.test;
 import com.pedropathing.telemetry.SelectableOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
-import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+
+import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 
 
 /**
@@ -125,13 +126,13 @@ class ShooterTestOp extends OpMode {
  * Spindexer test OpMode
  */
 class SpindexerTestOp extends OpMode {
-    private org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem spindexer;
+    private OldSpindexerSubsystem spindexer;
     private boolean manualMode = false;
     private double[] pidCoefficients = new double[3];
 
     @Override
     public void init() {
-        spindexer = new org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem(hardwareMap, telemetry);
+        spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         pidCoefficients = spindexer.getPIDCoefficients();
         telemetry.addData("Status", "Ready");
         telemetry.addLine("Controls:");
@@ -147,17 +148,17 @@ class SpindexerTestOp extends OpMode {
         // Position selection
         if (gamepad1.a) {
             spindexer.goToPosition(
-                    org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem.SpindexerPosition.POSITION_1);
+                    OldSpindexerSubsystem.SpindexerPosition.POSITION_1);
             manualMode = false;
         }
         if (gamepad1.b) {
             spindexer.goToPosition(
-                    org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem.SpindexerPosition.POSITION_2);
+                    OldSpindexerSubsystem.SpindexerPosition.POSITION_2);
             manualMode = false;
         }
         if (gamepad1.x) {
             spindexer.goToPosition(
-                    org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem.SpindexerPosition.POSITION_3);
+                    OldSpindexerSubsystem.SpindexerPosition.POSITION_3);
             manualMode = false;
         }
 
@@ -293,7 +294,7 @@ class IntakeTestOp extends OpMode {
  */
 class AllSystemsTestOp extends OpMode {
     private org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem shooter;
-    private org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem spindexer;
+    private OldSpindexerSubsystem spindexer;
     private org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem intake;
 
     @Override
@@ -302,7 +303,7 @@ class AllSystemsTestOp extends OpMode {
         telemetry.update();
 
         shooter = new org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem(hardwareMap, telemetry);
-        spindexer = new org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem(hardwareMap, telemetry);
+        spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         intake = new org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem(hardwareMap, telemetry);
 
         telemetry.addData("Status", "All Systems Ready");
@@ -336,13 +337,13 @@ class AllSystemsTestOp extends OpMode {
         // Spindexer controls (Gamepad 1 D-Pad)
         if (gamepad1.dpad_up) {
             spindexer.goToPosition(
-                    org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem.SpindexerPosition.POSITION_1);
+                    OldSpindexerSubsystem.SpindexerPosition.POSITION_1);
         } else if (gamepad1.dpad_right) {
             spindexer.goToPosition(
-                    org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem.SpindexerPosition.POSITION_2);
+                    OldSpindexerSubsystem.SpindexerPosition.POSITION_2);
         } else if (gamepad1.dpad_down) {
             spindexer.goToPosition(
-                    org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem.SpindexerPosition.POSITION_3);
+                    OldSpindexerSubsystem.SpindexerPosition.POSITION_3);
         }
         spindexer.update();
 
@@ -371,7 +372,7 @@ class AllSystemsTestOp extends OpMode {
  */
 class ShooterSpindexerTestOp extends OpMode {
     private org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem shooter;
-    private org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem spindexer;
+    private OldSpindexerSubsystem spindexer;
 
     @Override
     public void init() {
@@ -379,7 +380,7 @@ class ShooterSpindexerTestOp extends OpMode {
         telemetry.update();
 
         shooter = new org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem(hardwareMap, telemetry);
-        spindexer = new org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem(hardwareMap, telemetry);
+        spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
 
         telemetry.addData("Status", "Ready");
         telemetry.update();
@@ -403,13 +404,13 @@ class ShooterSpindexerTestOp extends OpMode {
         // Spindexer controls
         if (gamepad1.dpad_up) {
             spindexer.goToPosition(
-                    org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem.SpindexerPosition.POSITION_1);
+                    OldSpindexerSubsystem.SpindexerPosition.POSITION_1);
         } else if (gamepad1.dpad_right) {
             spindexer.goToPosition(
-                    org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem.SpindexerPosition.POSITION_2);
+                    OldSpindexerSubsystem.SpindexerPosition.POSITION_2);
         } else if (gamepad1.dpad_down) {
             spindexer.goToPosition(
-                    org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem.SpindexerPosition.POSITION_3);
+                    OldSpindexerSubsystem.SpindexerPosition.POSITION_3);
         }
         spindexer.update();
 
@@ -426,7 +427,7 @@ class ShooterSpindexerTestOp extends OpMode {
  */
 class IntakeSpindexerTestOp extends OpMode {
     private org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem intake;
-    private org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem spindexer;
+    private OldSpindexerSubsystem spindexer;
 
     @Override
     public void init() {
@@ -434,7 +435,7 @@ class IntakeSpindexerTestOp extends OpMode {
         telemetry.update();
 
         intake = new org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem(hardwareMap, telemetry);
-        spindexer = new org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem(hardwareMap, telemetry);
+        spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
 
         telemetry.addData("Status", "Ready");
         telemetry.update();
@@ -454,13 +455,13 @@ class IntakeSpindexerTestOp extends OpMode {
         // Spindexer controls
         if (gamepad1.dpad_up) {
             spindexer.goToPosition(
-                    org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem.SpindexerPosition.POSITION_1);
+                    OldSpindexerSubsystem.SpindexerPosition.POSITION_1);
         } else if (gamepad1.dpad_right) {
             spindexer.goToPosition(
-                    org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem.SpindexerPosition.POSITION_2);
+                    OldSpindexerSubsystem.SpindexerPosition.POSITION_2);
         } else if (gamepad1.dpad_down) {
             spindexer.goToPosition(
-                    org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem.SpindexerPosition.POSITION_3);
+                    OldSpindexerSubsystem.SpindexerPosition.POSITION_3);
         }
         spindexer.update();
 
@@ -510,13 +511,13 @@ class ShooterRPMCheckOp extends OpMode {
  * Quick test to check spindexer positions
  */
 class SpindexerPositionCheckOp extends OpMode {
-    private org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem spindexer;
+    private OldSpindexerSubsystem spindexer;
     private int currentTestPosition = 0;
     private boolean lastAPressed = false;
 
     @Override
     public void init() {
-        spindexer = new org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem(hardwareMap, telemetry);
+        spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         telemetry.addData("Status", "Press A to cycle through positions");
         telemetry.update();
     }

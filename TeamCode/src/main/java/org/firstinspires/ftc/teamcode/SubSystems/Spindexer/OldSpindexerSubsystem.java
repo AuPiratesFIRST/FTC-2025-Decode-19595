@@ -10,7 +10,7 @@ import org.firstinspires.ftc.robotcore.external.Telemetry;
  * Vertical spindexer subsystem with PID control for precise position control.
  * Uses GoBILDA 312 RPM motor with three positions for three active arts.
  */
-public class SpindexerSubsystem {
+public class OldSpindexerSubsystem {
 
     private final DcMotorEx spindexerMotor;
     private final Telemetry telemetry;
@@ -70,7 +70,7 @@ public class SpindexerSubsystem {
         }
     }
 
-    public SpindexerSubsystem(HardwareMap hardwareMap, Telemetry telemetry) {
+    public OldSpindexerSubsystem(HardwareMap hardwareMap, Telemetry telemetry) {
         this.telemetry = telemetry;
 
         // Initialize motor
@@ -95,7 +95,7 @@ public class SpindexerSubsystem {
 
     /**
      * Move to a specific position
-     * 
+     *
      * @param position SpindexerPosition enum value
      */
     public void goToPosition(SpindexerPosition position) {
@@ -106,7 +106,7 @@ public class SpindexerSubsystem {
 
     /**
      * Move to a specific position by index (0, 1, or 2)
-     * 
+     *
      * @param index Position index (0, 1, or 2)
      */
     public void goToPosition(int index) {
@@ -129,26 +129,26 @@ public class SpindexerSubsystem {
 
     /**
      * Update PID control - call this in your main loop.
-     * 
+     *
      * Implements PID (Proportional-Integral-Derivative) control algorithm:
      * - P term: error × kP (proportional to current error, provides initial
      * response)
      * - I term: Σ(error) × kI (eliminates steady-state error, with anti-windup)
      * - D term: (error - lastError) × kD (damping term, reduces overshoot and
      * oscillation)
-     * 
+     *
      * Output equation: power = (error × kP) + (integral × kI) + (derivative × kD)
      * When error is decreasing (approaching target), derivative is negative,
      * reducing power.
      * This provides smooth deceleration and prevents overshoot.
-     * 
+     *
      * Tuning Process:
      * 1. Start with kI=0, kD=0. Increase kP until system overshoots/oscillates
      * 2. Keep kP from step 1. Increase kD until oscillation is dampened and system
      * settles smoothly
      * 3. Keep kP and kD from step 2. Add small kI (0.0001-0.005) to eliminate
      * steady-state error
-     * 
+     *
      * Anti-windup: limits integral accumulation to ±500 to prevent excessive
      * correction.
      */
@@ -245,7 +245,7 @@ public class SpindexerSubsystem {
 
     /**
      * Check if spindexer is at target position
-     * 
+     *
      * @return True if within tolerance
      */
     public boolean isAtPosition() {
@@ -255,7 +255,7 @@ public class SpindexerSubsystem {
 
     /**
      * Get current position in ticks
-     * 
+     *
      * @return Current encoder position
      */
     public int getCurrentPosition() {
@@ -264,7 +264,7 @@ public class SpindexerSubsystem {
 
     /**
      * Get target position in ticks
-     * 
+     *
      * @return Target encoder position
      */
     public int getTargetPosition() {
@@ -273,7 +273,7 @@ public class SpindexerSubsystem {
 
     /**
      * Set PID coefficients
-     * 
+     *
      * @param kP Proportional gain
      * @param kI Integral gain
      * @param kD Derivative gain
@@ -286,7 +286,7 @@ public class SpindexerSubsystem {
 
     /**
      * Get current PID coefficients
-     * 
+     *
      * @return Array of [kP, kI, kD]
      */
     public double[] getPIDCoefficients() {
@@ -295,7 +295,7 @@ public class SpindexerSubsystem {
 
     /**
      * Set position tolerance
-     * 
+     *
      * @param tolerance Tolerance in encoder ticks
      */
     public void setPositionTolerance(int tolerance) {
@@ -305,7 +305,7 @@ public class SpindexerSubsystem {
 
     /**
      * Manually set motor power (for testing)
-     * 
+     *
      * @param power Motor power (-1.0 to 1.0)
      */
     public void setManualPower(double power) {

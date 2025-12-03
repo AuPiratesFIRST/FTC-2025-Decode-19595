@@ -61,14 +61,15 @@ public class SpindexerSubsystem {
         motor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         motor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         motor.setTargetPositionTolerance(TARGET_TOLERANCE);
-        motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+
+        // Initialize the target position
+        zero = motor.getCurrentPosition();  // Get the current position of the motor at initialization
+        target = zero; // Set the initial target to zero (the motor's current position)
+
+        motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);  // Now it's safe to switch to RUN_TO_POSITION mode
 
         // Apply correct PID
         motor.setPIDFCoefficients(DcMotor.RunMode.RUN_TO_POSITION, PIDF);
-
-        zero = motor.getCurrentPosition();
-        accum = 0;
-        target = zero;
     }
 
     // -------------------------------------------------------
@@ -108,6 +109,29 @@ public class SpindexerSubsystem {
         }
 
         moving = true;
+    }
+    public int getMotorPosition() {
+        return motor.getCurrentPosition();
+    }
+
+    public int getTargetPosition() {
+        return target;
+    }
+
+    public boolean isMoving() {
+        return moving;
+    }
+
+    public boolean isSettling() {
+        return settling;
+    }
+
+    public boolean isShooterPending() {
+        return shooterPending;
+    }
+
+    public int getIndex() {
+        return index;
     }
 
     // -------------------------------------------------------

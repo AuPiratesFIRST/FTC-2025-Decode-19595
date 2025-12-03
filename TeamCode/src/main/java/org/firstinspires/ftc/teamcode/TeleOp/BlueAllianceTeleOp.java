@@ -8,7 +8,7 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
-import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.SpindexerSubsystem;
+import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
 
 /**
@@ -41,7 +41,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
     private DriveSubsystem drive;
     private IntakeSubsystem intake;
     private ShooterSubsystem shooter;
-    private SpindexerSubsystem spindexer;
+    private OldSpindexerSubsystem spindexer;
     private AprilTagNavigator aprilTag;
 
     // Spindexer control variables
@@ -101,7 +101,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
         drive = new DriveSubsystem(hardwareMap, telemetry);
         intake = new IntakeSubsystem(hardwareMap, telemetry);
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
-        spindexer = new SpindexerSubsystem(hardwareMap, telemetry);
+        spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
 
         telemetry.addData("Status", "Initialized - Blue Alliance");
