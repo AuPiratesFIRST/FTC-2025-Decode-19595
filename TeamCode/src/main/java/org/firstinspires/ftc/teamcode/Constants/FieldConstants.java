@@ -23,8 +23,9 @@ public final class FieldConstants {
         // Note: 21/22/23 are on the obelisk outside the field
     };
 
-    // Goal lip height from floor (inches)
-    public static final double GOAL_HEIGHT_INCHES = 38.75;
+    // Goal height from floor (inches)
+    // Total goal height is approximately 54 inches (137.15 cm)
+    public static final double GOAL_HEIGHT_INCHES = 54.0;
 
     // Convenience goal centers in field coordinates (inches)
     public static final double GOAL_X_BLUE = 0.0;
