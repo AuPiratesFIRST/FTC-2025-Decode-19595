@@ -7,8 +7,8 @@ import com.qualcomm.robotcore.util.Range;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 
 /**
- * Vertical spindexer subsystem with PID control for precise position control.
- * Uses GoBILDA 312 RPM motor with three positions for three active arts.
+ * Vertical spindexer subsystem with PID control for precise position control,
+ * now including a two-step sequence for ball settling after rotation.
  */
 public class OldSpindexerSubsystem {
 
@@ -16,29 +16,31 @@ public class OldSpindexerSubsystem {
     private final Telemetry telemetry;
 
     // Motor specifications - GoBILDA RS-555 with 19.2:1 planetary gearbox
-    private static final double MOTOR_MAX_RPM = 312.0; // No-load speed at 12VDC
-    // Encoder: 28 PPR at motor shaft, 537.7 PPR at output shaft
-    // Quadrature encoding: 537.7 PPR × 4 = 2150.8 ticks per revolution at output
-    // shaft
-    private static final double TICKS_PER_REVOLUTION = 2150.8; // Quadrature encoder ticks at output shaft
-    private static final double DEGREES_PER_TICK = 360.0 / TICKS_PER_REVOLUTION; // ≈ 0.167 degrees per tick
+    private static final double MOTOR_MAX_RPM = 312.0;
+    private static final double TICKS_PER_REVOLUTION = 2150.8;
+    private static final double DEGREES_PER_TICK = 360.0 / TICKS_PER_REVOLUTION;
 
     // Three positions for three active arts (in encoder ticks)
-    // Position calculations: evenly spaced at 120° intervals (360° / 3 = 120°)
-    // Each position is 120° apart = 2150.8 / 3 ≈ 716.93 ticks
-    private static final int POSITION_1_TICKS = 0; // First art position (0°)
-    private static final int POSITION_2_TICKS = (int) (TICKS_PER_REVOLUTION / 3.0); // 120° (≈ 717 ticks)
-    private static final int POSITION_3_TICKS = (int) (TICKS_PER_REVOLUTION * 2.0 / 3.0); // 240° (≈ 1434 ticks)
+    private static final int POSITION_1_TICKS = 0;
+    private static final int POSITION_2_TICKS = (int) (TICKS_PER_REVOLUTION / 3.0);
+    private static final int POSITION_3_TICKS = (int) (TICKS_PER_REVOLUTION * 2.0 / 3.0);
+
+    // ***************************************************************
+    // ⚙️ BALL SETTLING CONSTANTS AND STATE
+    // ***************************************************************
+    private static final int BALL_SETTLE_TICKS = 34; // Distance for the small correction
+    private static final double SETTLE_POWER = 0.4;  // Power limit for the slow correction move
+
+    // Tracking the state machine progress
+    private boolean isSettling = false;              // Tracks if the settling move is active
+    private int settlingTarget = 0;                  // Stores the target position for the settling move
+    private boolean mainTargetReached = false;       // Tracks if the main target has been reached but settling hasn't started
+    // ***************************************************************
 
     // PID coefficients - tune these for your specific setup
-    // Start with these values and tune using the systematic process:
-    // 1. Tune kP first (increase until overshoot occurs)
-    // 2. Tune kD to dampen oscillation (increase until smooth settling)
-    // 3. Tune kI last (small values, 0.0001-0.005, to eliminate steady-state error)
-    // Recommended starting ranges: kP: 0.005-0.05, kD: 0.01-0.2, kI: 0.0001-0.005
-    private double kP = 0.0010; // Start here for P-term tuning
-    private double kI = 0.0; // Start at 0, add later for I-term tuning
-    private double kD = 0.02; // Start here for D-term tuning after P is set
+    private double kP = 0.0430;
+    private double kI = 0.0009;
+    private double kD = 0.02;
 
     // PID state variables
     private double integral = 0;
@@ -46,7 +48,7 @@ public class OldSpindexerSubsystem {
     private int targetPosition = 0;
 
     // Position tolerance (in ticks)
-    private static final int POSITION_TOLERANCE = 15; // Increased tolerance for better stopping
+    private static final int POSITION_TOLERANCE = 15;
 
     // Speed multiplier for testing (0.25 = quarter speed)
     private static final double SPEED_MULTIPLIER = 0.1;
@@ -72,22 +74,18 @@ public class OldSpindexerSubsystem {
 
     public OldSpindexerSubsystem(HardwareMap hardwareMap, Telemetry telemetry) {
         this.telemetry = telemetry;
-
-        // Initialize motor
         spindexerMotor = hardwareMap.get(DcMotorEx.class, "Spindexer");
-
         configureMotor();
     }
 
     private void configureMotor() {
-        // Set motor mode for position control
+        // Set motor direction to REVERSE
+        spindexerMotor.setDirection(DcMotor.Direction.REVERSE);
+
         spindexerMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         spindexerMotor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-
-        // Set zero power behavior
         spindexerMotor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-
-        // Reset PID state
+        // Reset PID state variables
         integral = 0;
         lastError = 0;
         targetPosition = 0;
@@ -100,8 +98,11 @@ public class OldSpindexerSubsystem {
      */
     public void goToPosition(SpindexerPosition position) {
         targetPosition = normalizeTicks(position.getTicks());
-        integral = 0; // Reset integral when changing targets
+        integral = 0;
         lastError = 0;
+        // Reset settling flags when a new main target is set
+        isSettling = false;
+        mainTargetReached = false;
     }
 
     /**
@@ -111,15 +112,9 @@ public class OldSpindexerSubsystem {
      */
     public void goToPosition(int index) {
         switch (index) {
-            case 0:
-                goToPosition(SpindexerPosition.POSITION_1);
-                break;
-            case 1:
-                goToPosition(SpindexerPosition.POSITION_2);
-                break;
-            case 2:
-                goToPosition(SpindexerPosition.POSITION_3);
-                break;
+            case 0: goToPosition(SpindexerPosition.POSITION_1); break;
+            case 1: goToPosition(SpindexerPosition.POSITION_2); break;
+            case 2: goToPosition(SpindexerPosition.POSITION_3); break;
             default:
                 if (telemetry != null) {
                     telemetry.addData("Spindexer Error", "Invalid position index: " + index);
@@ -129,40 +124,51 @@ public class OldSpindexerSubsystem {
 
     /**
      * Update PID control - call this in your main loop.
-     *
-     * Implements PID (Proportional-Integral-Derivative) control algorithm:
-     * - P term: error × kP (proportional to current error, provides initial
-     * response)
-     * - I term: Σ(error) × kI (eliminates steady-state error, with anti-windup)
-     * - D term: (error - lastError) × kD (damping term, reduces overshoot and
-     * oscillation)
-     *
-     * Output equation: power = (error × kP) + (integral × kI) + (derivative × kD)
-     * When error is decreasing (approaching target), derivative is negative,
-     * reducing power.
-     * This provides smooth deceleration and prevents overshoot.
-     *
-     * Tuning Process:
-     * 1. Start with kI=0, kD=0. Increase kP until system overshoots/oscillates
-     * 2. Keep kP from step 1. Increase kD until oscillation is dampened and system
-     * settles smoothly
-     * 3. Keep kP and kD from step 2. Add small kI (0.0001-0.005) to eliminate
-     * steady-state error
-     *
-     * Anti-windup: limits integral accumulation to ±500 to prevent excessive
-     * correction.
      */
     public void update() {
         int currentPosition = normalizeTicks(spindexerMotor.getCurrentPosition());
         double error = shortestError(targetPosition, currentPosition);
 
-        // Check if at position - stop motor if within tolerance
-        if (isAtPosition()) {
+        // ------------------------------------------------------------
+        // ➡️ LOGIC FOR BALL SETTLING STATE MACHINE
+        // ------------------------------------------------------------
+
+        // 1. If the motor is currently settling and the settling target is reached, stop the process.
+        if (isSettling && Math.abs(shortestError(settlingTarget, currentPosition)) <= POSITION_TOLERANCE) {
             spindexerMotor.setPower(0);
-            // Reset integral when at position to prevent windup
+            isSettling = false; // Settling is complete
+            mainTargetReached = true; // Mark final position as reached
+            if (telemetry != null) {
+                telemetry.addData("Spindexer Status", "SETTLING COMPLETE - STOPPED");
+            }
+            return;
+        }
+
+        // 2. If the main target is reached AND the settling move hasn't started, initiate the settling move.
+        // This is where the settling logic is triggered.
+        if (!isSettling && !mainTargetReached && isAtPosition()) {
+
+            // Calculate the settling target (a small movement backwards/downwards)
+            settlingTarget = targetPosition - BALL_SETTLE_TICKS;
+
+            // Temporarily change the target position to the settling target
+            // Note: targetPosition is normalized, so settlingTarget must also be normalized
+            targetPosition = normalizeTicks(settlingTarget);
+
+            // Set the state to settling, which will use the main PID loop for the small move
+            isSettling = true;
+
+            // Do NOT return here. Continue to the PID calculation to drive motor toward new target.
+        }
+
+        // 3. Determine the power limit: lower power for settling, normal for main move.
+        double currentPowerLimit = isSettling ? SETTLE_POWER : 0.5;
+
+        // 4. If the spindexer is completely at rest (main target reached and settling done), stop and exit.
+        if (isAtPosition() && !isSettling && mainTargetReached) {
+            spindexerMotor.setPower(0);
             integral = 0;
             lastError = 0;
-
             if (telemetry != null) {
                 telemetry.addData("Spindexer Status", "AT POSITION - STOPPED");
                 telemetry.addData("Spindexer Target", targetPosition);
@@ -173,49 +179,39 @@ public class OldSpindexerSubsystem {
             return;
         }
 
-        // Proportional term: immediate response to error
-        // P = error × kP (larger error = larger correction)
+        // ------------------------------------------------------------
+        // ➡️ Standard PID Control Calculation
+        // ------------------------------------------------------------
+
+        // Error calculation must be against the current target (either main or settling)
+        error = shortestError(targetPosition, currentPosition);
+
+        // Proportional term
         double proportional = error * kP;
 
-        // Integral term: accumulates error over time to eliminate steady-state error
-        // I = Σ(error) × kI (handles persistent small errors)
-        // Only accumulate integral if error is significant (prevents windup near
-        // target)
+        // Integral term (with anti-windup logic)
         if (Math.abs(error) > POSITION_TOLERANCE) {
             integral += error;
         } else {
-            // Reset integral when close to target to prevent overshoot
             integral = 0;
         }
-        // Anti-windup: limit integral to prevent excessive correction
-        if (integral > 500) {
-            integral = 500;
-        } else if (integral < -500) {
-            integral = -500;
-        }
+        integral = Range.clip(integral, -500, 500);
         double integralTerm = integral * kI;
 
-        // Derivative term: rate of change of error (damping)
-        // D = (error - lastError) × kD
-        // When error is decreasing (approaching target), this is negative, which should
-        // reduce power
+        // Derivative term
         double derivative = (error - lastError) * kD;
         lastError = error;
 
-        // PID output equation: output = P + I + D
-        // D is added because when error decreases, derivative is negative, reducing
-        // power (damping)
-        // This provides smooth deceleration as the system approaches the target
+        // PID output equation
         double output = proportional + integralTerm + derivative;
 
-        // Clip output to valid motor power range [-1.0, 1.0]
-        output = Range.clip(output, -1.0, 0.5);
+        // Clip output using the dynamic power limit
+        output = Range.clip(output, -currentPowerLimit, currentPowerLimit);
 
-        // Apply speed multiplier for testing (quarter speed)
+        // Apply speed multiplier (for debugging/testing)
         output *= SPEED_MULTIPLIER;
 
-        // Apply minimum power threshold - if output is too small, set to zero
-        // This prevents jitter and continuous small movements
+        // Apply minimum power threshold
         if (Math.abs(output) < MIN_POWER_THRESHOLD) {
             output = 0;
         }
@@ -229,6 +225,8 @@ public class OldSpindexerSubsystem {
             telemetry.addData("Spindexer Error", "%.1f", error);
             telemetry.addData("Spindexer Power", "%.2f", output);
             telemetry.addData("At Position", isAtPosition());
+            telemetry.addData("Is Settling", isSettling);
+            telemetry.addData("Power Limit", currentPowerLimit);
             telemetry.addData("--- PID Tuning Guide ---", "");
             telemetry.addData("P Term", "%.3f (kP=%.3f)", proportional, kP);
             telemetry.addData("I Term", "%.3f (kI=%.3f)", integralTerm, kI);
@@ -244,7 +242,7 @@ public class OldSpindexerSubsystem {
     }
 
     /**
-     * Check if spindexer is at target position
+     * Check if spindexer is at current target position.
      *
      * @return True if within tolerance
      */
@@ -295,12 +293,9 @@ public class OldSpindexerSubsystem {
 
     /**
      * Set position tolerance
-     *
-     * @param tolerance Tolerance in encoder ticks
      */
     public void setPositionTolerance(int tolerance) {
-        // Note: This would require making POSITION_TOLERANCE non-final
-        // For now, this is a placeholder for future enhancement
+        // Placeholder for future enhancement
     }
 
     /**
@@ -322,6 +317,8 @@ public class OldSpindexerSubsystem {
         targetPosition = 0;
         integral = 0;
         lastError = 0;
+        isSettling = false;
+        mainTargetReached = false;
     }
 
     /**
@@ -363,3 +360,4 @@ public class OldSpindexerSubsystem {
         return rawError;
     }
 }
+

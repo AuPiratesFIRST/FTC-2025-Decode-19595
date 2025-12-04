@@ -9,6 +9,10 @@ import org.firstinspires.ftc.vision.VisionPortal;//
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.Position;
+import org.firstinspires.ftc.robotcore.external.navigation.YawPitchRollAngles;
 
 
 import java.util.List;
@@ -40,6 +44,12 @@ public class AprilTagNavigator {
     private final double MIN_DETECTION_DISTANCE = 6.0; // Minimum distance for reliable detection (inches)
     private final double MAX_DETECTION_DISTANCE = 130.0; // Maximum distance for detection (increased for goal tags)
     private final double MIN_DETECTION_CONFIDENCE = 0.6; // Minimum confidence threshold (0.0-1.0, lowered for goal tags)
+    
+    // Camera position on robot
+    // Camera is in the middle of the robot (x=0, y=0) and 9 3/8 inches off the ground
+    // Position: (x, y, z) where x=left/right, y=forward/back, z=up/down from robot center
+    // Since camera is in middle: x=0, y=0, z=9.375 inches
+    private static final double CAMERA_HEIGHT = 9.375; // 9 3/8 inches = 9.375 inches
 
     public AprilTagNavigator(DriveSubsystem driveSubsystem, HardwareMap hardwareMap, Telemetry telemetry) {
         this.driveSubsystem = driveSubsystem;
@@ -47,12 +57,22 @@ public class AprilTagNavigator {
 
         // Initialize AprilTag vision for DECODE field
         // Using FTC SDK 8.2+ AprilTag processor with 36h11 family
+        
+        // Configure camera pose on robot
+        // Camera is in the middle of the robot (x=0, y=0) and 9 3/8 inches off the ground
+        // Position: (x, y, z) where x=left/right, y=forward/back, z=up/down from robot center
+        // Orientation: (yaw, pitch, roll) where yaw=rotation around z, pitch=rotation around x, roll=rotation around y
+        // Camera pointing forward: yaw=0, horizontal: pitch=-90, no roll: roll=0
+//        Position cameraPosition = new Position(DistanceUnit.INCH, 0, 0, CAMERA_HEIGHT);
+//        YawPitchRollAngles cameraOrientation = new YawPitchRollAngles(AngleUnit.DEGREES, 0, -90, 0);
+//
         aprilTag = new AprilTagProcessor.Builder()
                 .setDrawTagID(true)           // Show tag ID numbers
                 .setDrawTagOutline(true)      // Draw colored border around detected tags
                 .setDrawAxes(true)            // Show RGB axes at tag center
                 .setDrawCubeProjection(true)  // Show 3D cube projection
                 .setTagFamily(AprilTagProcessor.TagFamily.TAG_36h11) // DECODE uses 36h11 tag family
+//                .setCameraPose(cameraPosition, cameraOrientation) // Set camera position and orientation
                 .build();
 
         visionPortal = new VisionPortal.Builder()

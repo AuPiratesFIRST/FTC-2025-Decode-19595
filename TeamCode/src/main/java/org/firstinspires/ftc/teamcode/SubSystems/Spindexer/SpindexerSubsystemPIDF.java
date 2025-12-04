@@ -70,16 +70,16 @@ public class SpindexerSubsystemPIDF {
 
         motor = hw.get(DcMotorEx.class, "Spindexer");
 
-        motor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        motor.setZeroPowerBehavior(DcMotorEx.ZeroPowerBehavior.BRAKE);
 
         // Set initial position and target before switching to RUN_TO_POSITION mode
         initialPosition = motor.getCurrentPosition();  // Capture the current position of the motor
         absoluteTarget = initialPosition;  // Set the initial target to current position
 
         // Set PID coefficients
-        motor.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, PIDF);
+        motor.setPIDFCoefficients(DcMotorEx.RunMode.RUN_USING_ENCODER, PIDF);
 
-        motor.setDirection(DcMotor.Direction.REVERSE);  // Ensure correct direction
+        motor.setDirection(DcMotorEx.Direction.REVERSE);  // Ensure correct direction
 
         // Set the target position
         motor.setTargetPosition(0);

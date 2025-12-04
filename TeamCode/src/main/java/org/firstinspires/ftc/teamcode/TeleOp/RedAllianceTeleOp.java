@@ -52,6 +52,9 @@ public class RedAllianceTeleOp extends LinearOpMode {
     private boolean ballSettling = false;
     private boolean manualControlMode = false; // true = Manual, false = Automated
     
+    // Shooter control flags - separate from automated sequence
+    private boolean shooterManuallyControlled = false; // Track if shooter is manually controlled
+    
     // Button state tracking
     private boolean spindexerPressLast = false;
     private boolean dpadDownLast = false;
@@ -64,7 +67,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
     private boolean aPressedLast = false;
     private boolean bPressedLast = false;
 
-    // Spindexer positions (inspired by Decode20252026 but using subsystem)
+    // Spindexer positions 
     private static final double TICKS_PER_REVOLUTION = 2150.8;
     private static final int POS_TICK_120 = (int) (TICKS_PER_REVOLUTION / 3.0); // 717
     private static final int POS_TICK_240 = (int) (TICKS_PER_REVOLUTION * 2.0 / 3.0); // 1434
@@ -88,8 +91,8 @@ public class RedAllianceTeleOp extends LinearOpMode {
     // Ball settling: 0.25" counterclockwise
     private static final int BALL_SETTLING_TICKS = 34;
     
-    // Shooter power
-    private static final double SHOOTER_POWER = 0.7; // 70% = ~4200 RPM
+    // Shooter power - HIGH setting for maximum speed
+    private static final double SHOOTER_POWER = 1; // 85% = HIGH speed (~5100 RPM)
 
     // Alliance configuration
     private static final boolean IS_BLUE_ALLIANCE = false;
@@ -132,9 +135,13 @@ public class RedAllianceTeleOp extends LinearOpMode {
     }
 
     private void handleDriving() {
-        float forward = -gamepad1.left_stick_y;
-        float strafe = gamepad1.left_stick_x;
-        float turn = gamepad1.right_stick_x;
+        // CONTROLLER IS AT BACK - INVERT CONTROLS
+        // Forward stick = robot moves backward (invert Y)
+        // Left stick = robot strafes right (invert X)
+        // Right stick = turn direction (invert X for consistency)
+        float forward = gamepad1.left_stick_y;  // INVERTED: was -gamepad1.left_stick_y
+        float strafe = -gamepad1.left_stick_x;  // INVERTED: was gamepad1.left_stick_x
+        float turn = -gamepad1.right_stick_x;  // INVERTED: was gamepad1.right_stick_x
         
         double denominator = JavaUtil.maxOfList(JavaUtil.createListWith(0.5, 0.5 + Math.abs(turn)));
 
@@ -174,8 +181,13 @@ public class RedAllianceTeleOp extends LinearOpMode {
     private void handleShooter() {
         boolean rb = gamepad2.right_bumper;
         if (rb && !rbPressedLast) {
+            // Manual shooter control - always takes precedence
+            shooterManuallyControlled = true;
+            shooterNeedsToSpinUp = false; // Cancel automated spin-up
+            
             if (shooter.getTargetRPM() > 0) {
                 shooter.stop();
+                shooterManuallyControlled = false; // No longer manually controlled when stopped
             } else {
                 shooter.setPower(SHOOTER_POWER);
             }
@@ -219,6 +231,19 @@ public class RedAllianceTeleOp extends LinearOpMode {
         boolean dpadLeft = gamepad2.dpad_left;
         boolean dpadRight = gamepad2.dpad_right;
         
+        // Check for manual power control first (Right Stick Y) - highest priority
+        float manualPower = -gamepad2.right_stick_y;
+        if (Math.abs(manualPower) > 0.1) {
+            // Manual power control - overrides everything
+            spindexer.setManualPower(manualPower * 0.5); // Scale down for safety
+            spindexerIsMoving = false; // Disable position tracking when manually controlling
+            return; // Exit early - don't process position controls
+        } else {
+            // Stop manual power when stick is released
+            spindexer.setManualPower(0);
+        }
+        
+        // Position controls (only if not using manual power)
         if (dpadLeft && !spindexerIsMoving) {
             spindexerPositionIndex = (spindexerPositionIndex - 1 + 3) % 3; // Move backward
             spindexer.goToPosition(spindexerPositionIndex);
@@ -228,16 +253,6 @@ public class RedAllianceTeleOp extends LinearOpMode {
             spindexerPositionIndex = (spindexerPositionIndex + 1) % 3; // Move forward
             spindexer.goToPosition(spindexerPositionIndex);
             spindexerIsMoving = true;
-        }
-
-        // Manual power control (Right Stick Y) - overrides position control
-        float manualPower = -gamepad2.right_stick_y;
-        if (Math.abs(manualPower) > 0.1) {
-            spindexer.setManualPower(manualPower * 0.5); // Scale down for safety
-            spindexerIsMoving = false; // Disable position tracking when manually controlling
-        } else if (!spindexerIsMoving) {
-            // If not manually controlling and not moving to position, stop motor
-            spindexer.setManualPower(0);
         }
 
         // Update spindexer PID control (for position mode)
@@ -267,9 +282,11 @@ public class RedAllianceTeleOp extends LinearOpMode {
                     // In a full implementation, you'd use setManualPower() for settling
                     ballSettling = false; // Simplified - remove this line if implementing full settling
                 } else {
-                    // OUTTAKE MODE: Start shooter spin-up
-                    shooter.setPower(SHOOTER_POWER);
-                    shooterNeedsToSpinUp = true;
+                    // OUTTAKE MODE: Only start shooter spin-up if NOT manually controlled
+                    if (!shooterManuallyControlled) {
+                        shooter.setPower(SHOOTER_POWER);
+                        shooterNeedsToSpinUp = true;
+                    }
                 }
             }
         }
@@ -281,17 +298,18 @@ public class RedAllianceTeleOp extends LinearOpMode {
             ballSettling = false;
         }
 
-        // Check if shooter reached target RPM
-        if (shooterNeedsToSpinUp) {
+        // Check if shooter reached target RPM (only if automated, not manual)
+        if (shooterNeedsToSpinUp && !shooterManuallyControlled) {
             if (shooter.isAtTargetRPM()) {
                 shooterNeedsToSpinUp = false;
             }
         }
 
         // Spindexer advance button (A) - only in automated mode
+        // Don't block if shooter is manually controlled
         boolean spPress = gamepad2.a;
         boolean canMove = !spindexerIsMoving && !ballSettling &&
-                (!shooterNeedsToSpinUp || shooter.isAtTargetRPM());
+                (!shooterNeedsToSpinUp || shooter.isAtTargetRPM() || shooterManuallyControlled);
 
         if (spPress && !spindexerPressLast && canMove) {
             // Advance to next position
@@ -320,9 +338,9 @@ public class RedAllianceTeleOp extends LinearOpMode {
                 // Use yaw from detection to determine turn direction
                 double yaw = redGoal.ftcPose.yaw; // Positive = tag rotated CCW relative to camera
                 
-                // Get current forward/strafe from gamepad (already applied in handleDriving)
-                float forward = -gamepad1.left_stick_y;
-                float strafe = gamepad1.left_stick_x;
+                // Get current forward/strafe from gamepad (INVERTED - controller at back)
+                float forward = gamepad1.left_stick_y;  // INVERTED
+                float strafe = -gamepad1.left_stick_x;  // INVERTED
                 double denominator = JavaUtil.maxOfList(JavaUtil.createListWith(0.5, 0.5));
                 
                 // Simple proportional turn control with deadband
@@ -334,8 +352,8 @@ public class RedAllianceTeleOp extends LinearOpMode {
                                -turnPower);
                     telemetry.addData("Alignment", "Aligning to Red Goal (Tag 24) - Yaw: %.1f°", yaw);
                 } else {
-                    // Aligned - use normal driving
-                    float turn = gamepad1.right_stick_x;
+                    // Aligned - use normal driving (INVERTED controls)
+                    float turn = -gamepad1.right_stick_x;  // INVERTED
                     double denom = JavaUtil.maxOfList(JavaUtil.createListWith(0.5, 0.5 + Math.abs(turn)));
                     drive.drive((forward / denom) * driveSpeed, 
                                (strafe / denom) * driveSpeed, 
@@ -357,7 +375,8 @@ public class RedAllianceTeleOp extends LinearOpMode {
         telemetry.addData("Spindexer Position", spindexerPositionIndex);
         telemetry.addData("Spindexer Status", spindexerIsMoving ? "MOVING" :
                 (ballSettling ? "SETTLING" :
-                (shooterNeedsToSpinUp ? "WAITING FOR RPM" : "READY")));
+                (shooterNeedsToSpinUp && !shooterManuallyControlled ? "WAITING FOR RPM" : "READY")));
+        telemetry.addData("Shooter Control", shooterManuallyControlled ? "MANUAL" : "AUTOMATED");
         telemetry.addData("Shooter RPM", "%.0f / %.0f", shooter.getCurrentRPM(), shooter.getTargetRPM());
         telemetry.addData("Shooter At RPM", shooter.isAtTargetRPM());
         
