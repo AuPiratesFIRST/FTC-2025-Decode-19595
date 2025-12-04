@@ -14,11 +14,10 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Position;
 import org.firstinspires.ftc.robotcore.external.navigation.YawPitchRollAngles;
 
-
 import java.util.List;
 import java.util.Comparator;
 
-import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem ;
+import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.TileCoordinate;
 import org.firstinspires.ftc.teamcode.Constants.FieldConstants;
 
@@ -42,12 +41,20 @@ public class AprilTagNavigator {
     // Detection parameters optimized for DECODE field
     // Based on FTC SDK recommendations and field testing
     private final double MIN_DETECTION_DISTANCE = 6.0; // Minimum distance for reliable detection (inches)
-    private final double MAX_DETECTION_DISTANCE = 130.0; // Maximum distance for detection (increased for goal tags)
-    private final double MIN_DETECTION_CONFIDENCE = 0.6; // Minimum confidence threshold (0.0-1.0, lowered for goal tags)
-    
+    private final double MAX_DETECTION_DISTANCE = 150.0; // Maximum distance for detection (increased for goal tags at
+                                                         // field edges)
+    // Note: decisionMargin is NOT a confidence score (0-1). It's a measure of how
+    // close the tag
+    // classification was between two families. Values can be > 1.0 or < 0.2
+    // inconsistently.
+    // We use a low threshold to avoid filtering valid detections.
+    private final double MIN_DECISION_MARGIN = 30.0; // Minimum decision margin (not a confidence score)
+
     // Camera position on robot
-    // Camera is in the middle of the robot (x=0, y=0) and 9 3/8 inches off the ground
-    // Position: (x, y, z) where x=left/right, y=forward/back, z=up/down from robot center
+    // Camera is in the middle of the robot (x=0, y=0) and 9 3/8 inches off the
+    // ground
+    // Position: (x, y, z) where x=left/right, y=forward/back, z=up/down from robot
+    // center
     // Since camera is in middle: x=0, y=0, z=9.375 inches
     private static final double CAMERA_HEIGHT = 9.375; // 9 3/8 inches = 9.375 inches
 
@@ -57,22 +64,33 @@ public class AprilTagNavigator {
 
         // Initialize AprilTag vision for DECODE field
         // Using FTC SDK 8.2+ AprilTag processor with 36h11 family
-        
+
         // Configure camera pose on robot
-        // Camera is in the middle of the robot (x=0, y=0) and 9 3/8 inches off the ground
-        // Position: (x, y, z) where x=left/right, y=forward/back, z=up/down from robot center
-        // Orientation: (yaw, pitch, roll) where yaw=rotation around z, pitch=rotation around x, roll=rotation around y
-        // Camera pointing forward: yaw=0, horizontal: pitch=-90, no roll: roll=0
-//        Position cameraPosition = new Position(DistanceUnit.INCH, 0, 0, CAMERA_HEIGHT);
-//        YawPitchRollAngles cameraOrientation = new YawPitchRollAngles(AngleUnit.DEGREES, 0, -90, 0);
-//
+        // Camera is in the middle of the robot (x=0, y=0) and 9 3/8 inches off the
+        // ground
+        // Position: (x, y, z) where x=left/right, y=forward/back, z=up/down from robot
+        // center
+        // Orientation: (yaw, pitch, roll) where yaw=rotation around z, pitch=rotation
+        // around x, roll=rotation around y
+        //
+        // Camera orientation assumptions:
+        // - pitch=-90 means camera is horizontal (pointing forward, not up)
+        // - This is correct if camera is mounted with USB port horizontal (typical
+        // webcam mount)
+        // - If camera is mounted differently (e.g., USB port vertical), adjust pitch
+        // accordingly
+        // - yaw=0 means camera pointing forward relative to robot
+        // - roll=0 means camera is not rotated around its optical axis
+        Position cameraPosition = new Position(DistanceUnit.INCH, 0, 0, CAMERA_HEIGHT, 0);
+        YawPitchRollAngles cameraOrientation = new YawPitchRollAngles(AngleUnit.DEGREES, 0, -90, 0, 0);
+        //
         aprilTag = new AprilTagProcessor.Builder()
-                .setDrawTagID(true)           // Show tag ID numbers
-                .setDrawTagOutline(true)      // Draw colored border around detected tags
-                .setDrawAxes(true)            // Show RGB axes at tag center
-                .setDrawCubeProjection(true)  // Show 3D cube projection
+                .setDrawTagID(true) // Show tag ID numbers
+                .setDrawTagOutline(true) // Draw colored border around detected tags
+                .setDrawAxes(true) // Show RGB axes at tag center
+                .setDrawCubeProjection(true) // Show 3D cube projection
                 .setTagFamily(AprilTagProcessor.TagFamily.TAG_36h11) // DECODE uses 36h11 tag family
-//                .setCameraPose(cameraPosition, cameraOrientation) // Set camera position and orientation
+                .setCameraPose(cameraPosition, cameraOrientation) // Set camera position and orientation
                 .build();
 
         visionPortal = new VisionPortal.Builder()
@@ -80,15 +98,18 @@ public class AprilTagNavigator {
                 .addProcessor(aprilTag)
                 .build();
 
-        // Stream the VisionPortal feed to FTC Dashboard (VisionPortal implements CameraStreamSource)
-        FtcDashboard.getInstance().startCameraStream(visionPortal, 30);
+        // Stream the VisionPortal feed to FTC Dashboard (VisionPortal implements
+        // CameraStreamSource)
+        // Reduced to 15 FPS to avoid DS lag on weaker hardware
+        FtcDashboard.getInstance().startCameraStream(visionPortal, 15);
 
     }
 
     /**
      * Get the best AprilTag detection for localization
      * 
-     * Filters detections by distance and confidence, returns closest reliable detection.
+     * Filters detections by distance and confidence, returns closest reliable
+     * detection.
      * Uses FTC SDK pose data: range = direct distance to tag center.
      * 
      * @return Best AprilTag detection or null if none found
@@ -98,13 +119,14 @@ public class AprilTagNavigator {
         if (detections.isEmpty())
             return null;
 
-        // Filter detections by distance and confidence
+        // Filter detections by distance and decision margin
         // tag.ftcPose.range = direct distance to tag center (inches)
-        // tag.decisionMargin = detection confidence (0.0-1.0)
+        // tag.decisionMargin = measure of tag classification confidence (NOT 0-1 scale,
+        // can be > 1.0)
         return detections.stream()
                 .filter(tag -> tag.ftcPose.range >= MIN_DETECTION_DISTANCE)
                 .filter(tag -> tag.ftcPose.range <= MAX_DETECTION_DISTANCE)
-                .filter(tag -> tag.decisionMargin >= MIN_DETECTION_CONFIDENCE)
+                .filter(tag -> tag.decisionMargin >= MIN_DECISION_MARGIN)
                 .min(Comparator.comparingDouble(tag -> tag.ftcPose.range)) // Closest reliable detection
                 .orElse(null);
     }
@@ -118,18 +140,24 @@ public class AprilTagNavigator {
         return aprilTag.getDetections().stream()
                 .filter(tag -> tag.ftcPose.range >= MIN_DETECTION_DISTANCE)
                 .filter(tag -> tag.ftcPose.range <= MAX_DETECTION_DISTANCE)
-                .filter(tag -> tag.decisionMargin >= MIN_DETECTION_CONFIDENCE)
+                .filter(tag -> tag.decisionMargin >= MIN_DECISION_MARGIN)
                 .collect(java.util.stream.Collectors.toList());
     }
 
     /**
      * Get field position of an AprilTag by its ID
      * 
+     * Array structure: {tagId, x_inches, y_inches, heading_degrees}
+     * This method is robust to array structure changes as long as index 0 is tagId.
+     * 
      * @param tagId AprilTag ID
      * @return Field position as {x, y, heading} or null if not found
      */
     private double[] getAprilTagFieldPosition(int tagId) {
         for (double[] position : FieldConstants.APRILTAG_POSITIONS) {
+            if (position == null || position.length < 4) {
+                continue; // Skip invalid entries
+            }
             if ((int) position[0] == tagId) {
                 return new double[] { position[1], position[2], position[3] };
             }
@@ -138,7 +166,8 @@ public class AprilTagNavigator {
     }
 
     /**
-     * Calculate robot's field position based on AprilTag detection
+     * Calculate robot's field position based on AprilTag detection WITHOUT updating
+     * drive subsystem
      * 
      * Uses FTC SDK coordinate system:
      * - X axis: points to the right (positive = right of camera center)
@@ -146,56 +175,86 @@ public class AprilTagNavigator {
      * - Z axis: points upward (positive = up from camera)
      * - Yaw: rotation around Z axis (positive = counterclockwise)
      * 
+     * IMPORTANT: detection.ftcPose.x/y is the vector FROM camera TO tag.
+     * detection.ftcPose.yaw is the tag's rotation relative to camera (not camera
+     * relative to tag).
+     * 
      * @param detection AprilTag detection
-     * @return Robot's field position as TileCoordinate, or null if calculation fails
+     * @return Robot pose as {x, y, heading} or null if calculation fails
      */
-    public TileCoordinate calculateRobotPosition(AprilTagDetection detection) {
+    private double[] calculateRobotPoseWithoutUpdating(AprilTagDetection detection) {
         if (detection == null)
             return null;
 
         double[] tagFieldPos = getAprilTagFieldPosition(detection.id);
         if (tagFieldPos == null) {
-            telemetry.addData("AprilTag Error", "Unknown tag ID: %d", detection.id);
+            if (telemetry != null) {
+                telemetry.addData("AprilTag Error", "Unknown tag ID: %d", detection.id);
+            }
             return null;
         }
 
-        // Get relative position from robot to tag using FTC SDK coordinate system
-        // detection.ftcPose.x = sideways offset (positive = right of camera center)
-        // detection.ftcPose.y = forward distance (positive = forward from camera)
-        // detection.ftcPose.yaw = tag rotation around Z axis (positive = counterclockwise)
-        double relativeX = detection.ftcPose.x; // Left/Right from robot (FTC X axis)
-        double relativeY = detection.ftcPose.y; // Forward/Backward from robot (FTC Y axis)
+        // Get relative position FROM camera TO tag using FTC SDK coordinate system
+        // detection.ftcPose.x = sideways offset (positive = tag is right of camera
+        // center)
+        // detection.ftcPose.y = forward distance (positive = tag is forward from
+        // camera)
+        // detection.ftcPose.yaw = tag's rotation around Z axis relative to camera
+        // (positive = tag rotated counterclockwise relative to camera)
+        double relativeX = detection.ftcPose.x; // Camera-to-tag X offset
+        double relativeY = detection.ftcPose.y; // Camera-to-tag Y offset (forward)
         double relativeYaw = Math.toRadians(detection.ftcPose.yaw); // Tag rotation relative to camera
 
-        // Convert to field coordinates
         // Tag field position
         double tagX = tagFieldPos[0];
         double tagY = tagFieldPos[1];
         double tagHeading = Math.toRadians(tagFieldPos[2]);
 
-        // Calculate robot's field position
-        // First, rotate relative position by tag's heading to align with field coordinates
+        // Rotate the camera-to-tag vector by tag's heading to align with field
+        // coordinates
         double cosTag = Math.cos(tagHeading);
         double sinTag = Math.sin(tagHeading);
 
         double rotatedX = relativeX * cosTag - relativeY * sinTag;
         double rotatedY = relativeX * sinTag + relativeY * cosTag;
 
-        // Then add to tag's field position to get robot's absolute position
-        double robotX = tagX + rotatedX;
-        double robotY = tagY + rotatedY;
+        // Calculate robot's field position
+        // Since detection vector points FROM camera TO tag, robot position = tag
+        // position - rotated vector
+        double robotX = tagX - rotatedX;
+        double robotY = tagY - rotatedY;
 
         // Calculate robot's field heading
-        // Robot heading = tag's field heading + relative yaw from tag
-        double robotHeading = tagHeading + relativeYaw;
+        // If tag is rotated +θ relative to camera, camera is at -θ relative to tag
+        // So: robot_heading = tag_heading - relative_yaw
+        double robotHeading = tagHeading - relativeYaw;
+
+        return new double[] { robotX, robotY, robotHeading };
+    }
+
+    /**
+     * Calculate robot's field position based on AprilTag detection
+     * 
+     * This method updates the drive subsystem. For triangulation, use
+     * calculateRobotPoseWithoutUpdating().
+     * 
+     * @param detection AprilTag detection
+     * @return Robot's field position as TileCoordinate, or null if calculation
+     *         fails
+     */
+    public TileCoordinate calculateRobotPosition(AprilTagDetection detection) {
+        double[] pose = calculateRobotPoseWithoutUpdating(detection);
+        if (pose == null) {
+            return null;
+        }
 
         // Create and return tile coordinate
-        TileCoordinate robotPos = new TileCoordinate(robotX, robotY);
+        TileCoordinate robotPos = new TileCoordinate(pose[0], pose[1]);
 
         // Update drive subsystem with calculated position and heading
         if (driveSubsystem != null) {
             driveSubsystem.setPosition(robotPos);
-            driveSubsystem.setHeading(robotHeading);
+            driveSubsystem.setHeading(pose[2]);
         }
 
         return robotPos;
@@ -408,7 +467,7 @@ public class AprilTagNavigator {
                 .filter(tag -> tag.id == 20 || tag.id == 24) // Only blue and red alliance goals
                 .filter(tag -> tag.ftcPose.range >= MIN_DETECTION_DISTANCE)
                 .filter(tag -> tag.ftcPose.range <= MAX_DETECTION_DISTANCE)
-                .filter(tag -> tag.decisionMargin >= MIN_DETECTION_CONFIDENCE)
+                .filter(tag -> tag.decisionMargin >= MIN_DECISION_MARGIN)
                 .min(Comparator.comparingDouble(tag -> tag.ftcPose.range)) // Closest reliable detection
                 .orElse(null);
     }
@@ -448,98 +507,102 @@ public class AprilTagNavigator {
         return true;
     }
 
-	/**
-	 * Update robot position using triangulation from both alliance goal tags
-	 * when available. Falls back to best single alliance goal detection when
-	 * only one is visible.
-	 *
-	 * Triangulation approach:
-	 * - Compute independent robot poses from each valid detection (IDs 20, 24)
-	 * - Fuse by simple averaging of positions and headings
-	 * - If only one detection available, use that single pose
-	 *
-	 * @return True if position was successfully updated, false otherwise
-	 */
-	public boolean updateRobotPositionFromTriangulation() {
-		List<AprilTagDetection> detections = aprilTag.getDetections();
-		if (detections.isEmpty()) {
-			if (telemetry != null) telemetry.addData("AprilTag Localization", "No detections");
-			return false;
-		}
+    /**
+     * Update robot position using triangulation from both alliance goal tags
+     * when available. Falls back to best single alliance goal detection when
+     * only one is visible.
+     *
+     * Triangulation approach:
+     * - Compute independent robot poses from each valid detection (IDs 20, 24)
+     * - Fuse by simple averaging of positions and headings
+     * - If only one detection available, use that single pose
+     *
+     * @return True if position was successfully updated, false otherwise
+     */
+    public boolean updateRobotPositionFromTriangulation() {
+        List<AprilTagDetection> detections = aprilTag.getDetections();
+        if (detections.isEmpty()) {
+            if (telemetry != null)
+                telemetry.addData("AprilTag Localization", "No detections");
+            return false;
+        }
 
-		// Filter to valid alliance goal detections only (IDs 20 and 24) and within thresholds
-		List<AprilTagDetection> goalDetections = detections.stream()
-				.filter(tag -> tag.id == 20 || tag.id == 24)
-				.filter(tag -> tag.ftcPose.range >= MIN_DETECTION_DISTANCE)
-				.filter(tag -> tag.ftcPose.range <= MAX_DETECTION_DISTANCE)
-				.filter(tag -> tag.decisionMargin >= MIN_DETECTION_CONFIDENCE)
-				.collect(java.util.stream.Collectors.toList());
+        // Filter to valid alliance goal detections only (IDs 20 and 24) and within
+        // thresholds
+        List<AprilTagDetection> goalDetections = detections.stream()
+                .filter(tag -> tag.id == 20 || tag.id == 24)
+                .filter(tag -> tag.ftcPose.range >= MIN_DETECTION_DISTANCE)
+                .filter(tag -> tag.ftcPose.range <= MAX_DETECTION_DISTANCE)
+                .filter(tag -> tag.decisionMargin >= MIN_DECISION_MARGIN)
+                .collect(java.util.stream.Collectors.toList());
 
-		if (goalDetections.isEmpty()) {
-			if (telemetry != null) telemetry.addData("AprilTag Localization", "No alliance goal detections");
-			return false;
-		}
+        if (goalDetections.isEmpty()) {
+            if (telemetry != null)
+                telemetry.addData("AprilTag Localization", "No alliance goal detections");
+            return false;
+        }
 
-		TileCoordinate poseFrom20 = null;
-		TileCoordinate poseFrom24 = null;
-		double headingFrom20 = Double.NaN;
-		double headingFrom24 = Double.NaN;
+        TileCoordinate poseFrom20 = null;
+        TileCoordinate poseFrom24 = null;
+        double headingFrom20 = Double.NaN;
+        double headingFrom24 = Double.NaN;
 
-		for (AprilTagDetection det : goalDetections) {
-			TileCoordinate pose = calculateRobotPosition(det);
-			if (pose == null) continue;
-			double heading = driveSubsystem != null ? driveSubsystem.getCurrentHeading() : Double.NaN;
-			// calculateRobotPosition already updates driveSubsystem with heading; we derive heading directly from tag data too
-			double[] tagFieldPos = getAprilTagFieldPosition(det.id);
-			double tagHeading = Math.toRadians(tagFieldPos != null ? tagFieldPos[2] : 0);
-			double relativeYaw = Math.toRadians(det.ftcPose.yaw);
-			double computedHeading = tagHeading + relativeYaw;
+        for (AprilTagDetection det : goalDetections) {
+            // Use calculateRobotPoseWithoutUpdating to avoid mutating driveSubsystem
+            // multiple times
+            double[] poseData = calculateRobotPoseWithoutUpdating(det);
+            if (poseData == null)
+                continue;
 
-			if (det.id == 20) {
-				poseFrom20 = pose;
-				headingFrom20 = computedHeading;
-			} else if (det.id == 24) {
-				poseFrom24 = pose;
-				headingFrom24 = computedHeading;
-			}
-		}
+            TileCoordinate pose = new TileCoordinate(poseData[0], poseData[1]);
+            double computedHeading = poseData[2];
 
-		TileCoordinate fused;
-		double fusedHeading;
+            if (det.id == 20) {
+                poseFrom20 = pose;
+                headingFrom20 = computedHeading;
+            } else if (det.id == 24) {
+                poseFrom24 = pose;
+                headingFrom24 = computedHeading;
+            }
+        }
 
-		if (poseFrom20 != null && poseFrom24 != null) {
-			// Simple average fusion
-			double x = (poseFrom20.getX() + poseFrom24.getX()) / 2.0;
-			double y = (poseFrom20.getY() + poseFrom24.getY()) / 2.0;
-			fused = new TileCoordinate(x, y);
-			// Average headings taking wrap-around into account
-			double s = Math.sin(headingFrom20) + Math.sin(headingFrom24);
-			double c = Math.cos(headingFrom20) + Math.cos(headingFrom24);
-			fusedHeading = Math.atan2(s, c);
-		} else if (poseFrom20 != null) {
-			fused = poseFrom20;
-			fusedHeading = headingFrom20;
-		} else if (poseFrom24 != null) {
-			fused = poseFrom24;
-			fusedHeading = headingFrom24;
-		} else {
-			if (telemetry != null) telemetry.addData("AprilTag Localization", "No valid triangulation poses");
-			return false;
-		}
+        TileCoordinate fused;
+        double fusedHeading;
 
-		if (driveSubsystem != null) {
-			driveSubsystem.setPosition(fused);
-			driveSubsystem.setHeading(fusedHeading);
-		}
+        if (poseFrom20 != null && poseFrom24 != null) {
+            // Simple average fusion
+            double x = (poseFrom20.getX() + poseFrom24.getX()) / 2.0;
+            double y = (poseFrom20.getY() + poseFrom24.getY()) / 2.0;
+            fused = new TileCoordinate(x, y);
+            // Average headings taking wrap-around into account
+            double s = Math.sin(headingFrom20) + Math.sin(headingFrom24);
+            double c = Math.cos(headingFrom20) + Math.cos(headingFrom24);
+            fusedHeading = Math.atan2(s, c);
+        } else if (poseFrom20 != null) {
+            fused = poseFrom20;
+            fusedHeading = headingFrom20;
+        } else if (poseFrom24 != null) {
+            fused = poseFrom24;
+            fusedHeading = headingFrom24;
+        } else {
+            if (telemetry != null)
+                telemetry.addData("AprilTag Localization", "No valid triangulation poses");
+            return false;
+        }
 
-		if (telemetry != null) {
-			telemetry.addData("AprilTag Triangulation", "Success");
-			telemetry.addData("Field Position", "X: %.1f, Y: %.1f", fused.getX(), fused.getY());
-			telemetry.addData("Heading", "%.1f°", Math.toDegrees(fusedHeading));
-		}
+        if (driveSubsystem != null) {
+            driveSubsystem.setPosition(fused);
+            driveSubsystem.setHeading(fusedHeading);
+        }
 
-		return true;
-	}
+        if (telemetry != null) {
+            telemetry.addData("AprilTag Triangulation", "Success");
+            telemetry.addData("Field Position", "X: %.1f, Y: %.1f", fused.getX(), fused.getY());
+            telemetry.addData("Heading", "%.1f°", Math.toDegrees(fusedHeading));
+        }
+
+        return true;
+    }
 
     /**
      * Update telemetry with DECODE-specific localization information
