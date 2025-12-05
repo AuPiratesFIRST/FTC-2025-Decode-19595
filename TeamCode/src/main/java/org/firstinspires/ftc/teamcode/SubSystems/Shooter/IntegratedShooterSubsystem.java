@@ -48,13 +48,13 @@ public class IntegratedShooterSubsystem {
     // Tested: 88 inches at ~5000 RPM (0.83 power) scores successfully
     // Profile covers closer distances with lower power
     private static final double[][] SHOT_PROFILE = new double[][] {
-            { 24, 0.45 }, // Close range
-            { 36, 0.60 }, // Medium-close
-            { 48, 0.70 }, // Medium
-            { 60, 0.80 }, // Medium-far
-            { 72, 0.85 }, // Far
-            { 88, 0.83 }, // Very far (tested distance - ~5000 RPM)
-            { 100, 1.0 } // Maximum range
+            { 20, 0.45 }, // Close range
+            { 24, 0.60 }, // Medium-close
+            { 36, 0.70 }, // Medium
+            { 48, 0.80 }, // Medium-far
+            { 60, 0.85 }, // Far
+            { 72, 0.83 }, // Very far (tested distance - ~5000 RPM)
+            { 88, 1.0 } // Maximum range
     };
 
     // Fixed launch angle (approximately 45-65 degrees, less than 90°)

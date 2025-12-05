@@ -326,40 +326,39 @@ public class RedAllianceTeleOp extends LinearOpMode {
 
     private void handleAprilTagAlignment() {
         boolean y = gamepad2.y;
-        
+
         // Continuous alignment when button is held
         if (y) {
             // Update robot position from AprilTags
             aprilTag.updateRobotPositionFromAllianceGoals();
             AprilTagDetection redGoal = aprilTag.getBestAllianceGoalDetection();
-            
+
             if (redGoal != null && redGoal.id == TARGET_TAG_ID) {
-                // Calculate turn needed to face goal
-                // Use yaw from detection to determine turn direction
-                double yaw = redGoal.ftcPose.yaw; // Positive = tag rotated CCW relative to camera
-                
+                // Calculate left/right offset to determine alignment
+                double xOffset = redGoal.ftcPose.x;  // left/right offset in inches
+
                 // Get current forward/strafe from gamepad (INVERTED - controller at back)
                 float forward = gamepad1.left_stick_y;  // INVERTED
                 float strafe = -gamepad1.left_stick_x;  // INVERTED
                 double denominator = JavaUtil.maxOfList(JavaUtil.createListWith(0.5, 0.5));
-                
-                // Simple proportional turn control with deadband
-                if (Math.abs(yaw) > 2.0) { // Deadband: don't turn if within 2 degrees
-                    double turnPower = Math.max(-0.5, Math.min(0.5, yaw * 0.02)); // Scale yaw to turn power
-                    // Apply alignment turn while preserving forward/strafe movement
-                    drive.drive((forward / denominator) * driveSpeed, 
-                               (strafe / denominator) * driveSpeed, 
-                               -turnPower);
-                    telemetry.addData("Alignment", "Aligning to Red Goal (Tag 24) - Yaw: %.1f°", yaw);
-                } else {
-                    // Aligned - use normal driving (INVERTED controls)
-                    float turn = -gamepad1.right_stick_x;  // INVERTED
-                    double denom = JavaUtil.maxOfList(JavaUtil.createListWith(0.5, 0.5 + Math.abs(turn)));
-                    drive.drive((forward / denom) * driveSpeed, 
-                               (strafe / denom) * driveSpeed, 
-                               (turn / denom) * driveSpeed);
-                    telemetry.addData("Alignment", "Aligned to Red Goal (Tag 24)!");
-                }
+
+                // Proportional control on X offset (left/right)
+                double kP = 0.02;  // tune 0.015–0.025
+                double turnPower = xOffset * kP;
+
+                // Deadband to prevent jitter
+                if (Math.abs(xOffset) < 0.5) turnPower = 0;
+
+                turnPower = Math.max(-0.4, Math.min(0.4, turnPower));
+
+                // Apply alignment turn while preserving forward/strafe movement
+                drive.drive(
+                        (forward / denominator) * driveSpeed,
+                        (strafe / denominator) * driveSpeed,
+                        -turnPower
+                );
+
+                telemetry.addData("Alignment", "X offset: %.2f, turn: %.2f", xOffset, turnPower);
             } else {
                 telemetry.addData("Alignment", "Red Goal (Tag 24) not detected");
             }

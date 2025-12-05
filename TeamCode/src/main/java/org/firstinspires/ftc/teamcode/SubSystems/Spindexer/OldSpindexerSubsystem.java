@@ -51,7 +51,7 @@ public class OldSpindexerSubsystem {
     private static final int POSITION_TOLERANCE = 15;
 
     // Speed multiplier for testing (0.25 = quarter speed)
-    private static final double SPEED_MULTIPLIER = 0.1;
+    private static final double SPEED_MULTIPLIER = 1;
 
     // Minimum power threshold - motor won't move below this (prevents jitter)
     private static final double MIN_POWER_THRESHOLD = 0.05;
@@ -162,7 +162,7 @@ public class OldSpindexerSubsystem {
         }
 
         // 3. Determine the power limit: lower power for settling, normal for main move.
-        double currentPowerLimit = isSettling ? SETTLE_POWER : 0.5;
+        double currentPowerLimit = isSettling ? SETTLE_POWER : 1;
 
         // 4. If the spindexer is completely at rest (main target reached and settling done), stop and exit.
         if (isAtPosition() && !isSettling && mainTargetReached) {
