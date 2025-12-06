@@ -29,6 +29,7 @@ public class DriveSubsystem {
 
     public DriveSubsystem(HardwareMap hardwareMap, Telemetry telemetry) {
         this.telemetry = telemetry;
+
         // Initialize motors
         leftFront = hardwareMap.get(DcMotorEx.class, "leftFront");
         leftRear = hardwareMap.get(DcMotorEx.class, "leftRear");
@@ -37,7 +38,7 @@ public class DriveSubsystem {
 
         configureMotors();
 
-        // Initialize tile-based navigation
+        // Initialize position tracking
         currentPosition = new TileCoordinate(0, 0); // Start at origin
         currentHeading = 0; // Facing right
     }
@@ -58,26 +59,13 @@ public class DriveSubsystem {
         rightRear.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
     }
 
+    // =================== Drive Methods ===================
+
     /**
      * Mecanum wheel drive kinematics.
-     * 
      * Calculates individual motor powers for mecanum wheel drivebase.
-     * Each wheel combines forward, strafe, and turn components:
-     * - Left Front: forward + strafe + turn
-     * - Right Front: forward - strafe - turn
-     * - Left Rear: forward - strafe + turn
-     * - Right Rear: forward + strafe - turn
-     * 
-     * The strafe component is opposite for left vs right wheels to enable
-     * sideways movement. Turn is added/subtracted based on wheel position.
-     * 
-     * @param forward Forward/backward movement (-1.0 to 1.0)
-     * @param strafe  Left/right strafe movement (-1.0 to 1.0)
-     * @param turn    Rotation (-1.0 to 1.0, positive = counterclockwise)
      */
     public void drive(double forward, double strafe, double turn) {
-        // Mecanum wheel kinematics equations
-        // Each wheel power = forward ± strafe ± turn
         double fl = forward + strafe + turn; // Left Front
         double fr = forward - strafe - turn; // Right Front
         double bl = forward - strafe + turn; // Left Rear
@@ -94,11 +82,115 @@ public class DriveSubsystem {
         drive(0, 0, 0);
     }
 
+    // =================== Movement Methods ===================
+
+    /**
+     * Move the robot forward or backward by a specific distance in inches.
+     */
+    public void moveInches(double inches, double power) {
+        double wheelCircumference = Math.PI * WHEEL_DIAMETER;
+        double ticksRequired = (inches / wheelCircumference) * TICKS_PER_REVOLUTION;
+
+        leftFront.setTargetPosition(leftFront.getCurrentPosition() + (int) ticksRequired);
+        leftRear.setTargetPosition(leftRear.getCurrentPosition() + (int) ticksRequired);
+        rightFront.setTargetPosition(rightFront.getCurrentPosition() + (int) ticksRequired);
+        rightRear.setTargetPosition(rightRear.getCurrentPosition() + (int) ticksRequired);
+
+        setMotorModes(DcMotor.RunMode.RUN_TO_POSITION);
+
+        leftFront.setPower(power);
+        leftRear.setPower(power);
+        rightFront.setPower(power);
+        rightRear.setPower(power);
+
+        while (leftFront.isBusy() && leftRear.isBusy() && rightFront.isBusy() && rightRear.isBusy()) {
+            if (telemetry != null) {
+                telemetry.addData("Moving", "Distance: %.1f inches", inches);
+                telemetry.update();
+            }
+        }
+
+        stop(); // Stop when finished
+    }
+
+    /**
+     * Strafe the robot left or right by a specific distance in inches.
+     */
+    public void strafeInches(double inches, double power) {
+        double wheelCircumference = Math.PI * WHEEL_DIAMETER;
+        double ticksRequired = (inches / wheelCircumference) * TICKS_PER_REVOLUTION;
+
+        leftFront.setTargetPosition(leftFront.getCurrentPosition() + (int) -ticksRequired); // Left Front
+        leftRear.setTargetPosition(leftRear.getCurrentPosition() + (int) ticksRequired); // Left Rear
+        rightFront.setTargetPosition(rightFront.getCurrentPosition() + (int) ticksRequired); // Right Front
+        rightRear.setTargetPosition(rightRear.getCurrentPosition() + (int) -ticksRequired); // Right Rear
+
+        setMotorModes(DcMotor.RunMode.RUN_TO_POSITION);
+
+        leftFront.setPower(power);
+        leftRear.setPower(power);
+        rightFront.setPower(power);
+        rightRear.setPower(power);
+
+        while (leftFront.isBusy() && leftRear.isBusy() && rightFront.isBusy() && rightRear.isBusy()) {
+            if (telemetry != null) {
+                telemetry.addData("Strafing", "Distance: %.1f inches", inches);
+                telemetry.update();
+            }
+        }
+
+        stop(); // Stop when finished
+    }
+
+    /**
+     * Rotate the robot by a specific number of degrees.
+     */
+    public void rotateDegrees(double degrees, double power) {
+        double wheelCircumference = Math.PI * WHEEL_DIAMETER;
+        double turnDistance = (degrees / 360) * wheelCircumference;
+        double ticksRequired = (turnDistance / wheelCircumference) * TICKS_PER_REVOLUTION;
+
+        int ticks = (int) ticksRequired;
+
+        leftFront.setTargetPosition(leftFront.getCurrentPosition() - ticks);  // Rotate counterclockwise (left motor)
+        leftRear.setTargetPosition(leftRear.getCurrentPosition() - ticks);   // Rotate counterclockwise (left motor)
+        rightFront.setTargetPosition(rightFront.getCurrentPosition() + ticks); // Rotate clockwise (right motor)
+        rightRear.setTargetPosition(rightRear.getCurrentPosition() + ticks);  // Rotate clockwise (right motor)
+
+        setMotorModes(DcMotor.RunMode.RUN_TO_POSITION);
+
+        leftFront.setPower(power);
+        leftRear.setPower(power);
+        rightFront.setPower(power);
+        rightRear.setPower(power);
+
+        while (leftFront.isBusy() && leftRear.isBusy() && rightFront.isBusy() && rightRear.isBusy()) {
+            if (telemetry != null) {
+                telemetry.addData("Rotating", "Angle: %.1f degrees", degrees);
+                telemetry.update();
+            }
+        }
+
+        stop(); // Stop when finished
+    }
+
+
+
+    /**
+     * Set motor modes (RUN_TO_POSITION or RUN_USING_ENCODER)
+     */
+    private void setMotorModes(DcMotor.RunMode mode) {
+        leftFront.setMode(mode);
+        leftRear.setMode(mode);
+        rightFront.setMode(mode);
+        rightRear.setMode(mode);
+    }
+
     // ==================== TILE-BASED NAVIGATION METHODS ====================
 
     /**
      * Set the robot's current position in tile coordinates
-     * 
+     *
      * @param position Current tile coordinate position
      */
     public void setPosition(TileCoordinate position) {
@@ -107,7 +199,7 @@ public class DriveSubsystem {
 
     /**
      * Set the robot's current heading
-     * 
+     *
      * @param heading Heading in radians (0 = right, π/2 = up, π = left, 3π/2 =
      *                down)
      */
@@ -117,7 +209,7 @@ public class DriveSubsystem {
 
     /**
      * Get the robot's current tile position
-     * 
+     *
      * @return Current tile coordinate
      */
     public TileCoordinate getCurrentPosition() {
@@ -126,7 +218,7 @@ public class DriveSubsystem {
 
     /**
      * Get the robot's current heading
-     * 
+     *
      * @return Current heading in radians
      */
     public double getCurrentHeading() {
@@ -135,7 +227,7 @@ public class DriveSubsystem {
 
     /**
      * Move to a specific tile with offset
-     * 
+     *
      * @param column  Tile column (A-F)
      * @param row     Tile row (1-6)
      * @param offsetX Offset within tile (0-24 inches)
@@ -149,7 +241,7 @@ public class DriveSubsystem {
 
     /**
      * Move to a tab-line intersection
-     * 
+     *
      * @param column Tab column (V-Z)
      * @param row    Tab row (1-5)
      * @param power  Motor power (0-1)
@@ -161,16 +253,16 @@ public class DriveSubsystem {
 
     /**
      * Move to a specific tile coordinate position.
-     * 
+     *
      * Calculates movement vector from current position to target:
      * - Distance: Euclidean distance using distanceTo()
      * - Angle: atan2(dy, dx) from currentPosition.angleTo()
      * - Forward component: cos(angle) × power (movement along angle)
      * - Strafe component: sin(angle) × power (perpendicular movement)
      * - Turn component: sin(angle - heading) × power × 0.5 (aligns robot to target)
-     * 
+     *
      * The 0.5 scaling factor reduces turn aggressiveness for smoother navigation.
-     * 
+     *
      * @param target Target tile coordinate
      * @param power  Motor power (0-1)
      */
@@ -207,7 +299,7 @@ public class DriveSubsystem {
 
     /**
      * Move to center of a specific tile
-     * 
+     *
      * @param column Tile column (A-F)
      * @param row    Tile row (1-6)
      * @param power  Motor power (0-1)
@@ -218,17 +310,17 @@ public class DriveSubsystem {
 
     /**
      * Move relative to current position by tile units.
-     * 
+     *
      * Performs coordinate transformation to move relative to robot's current
      * heading.
      * Converts relative movement (forward/right) to absolute field coordinates:
-     * 
+     *
      * newX = currentX + forward×cos(heading) - strafe×sin(heading)
      * newY = currentY + forward×sin(heading) + strafe×cos(heading)
-     * 
+     *
      * This rotation matrix accounts for robot orientation, so "forward" means
      * in the direction the robot is facing, not always field-north.
-     * 
+     *
      * @param tilesForward Number of tiles forward (negative for backward)
      * @param tilesRight   Number of tiles right (negative for left)
      * @param power        Motor power (0-1)
@@ -252,15 +344,15 @@ public class DriveSubsystem {
 
     /**
      * Turn to face a specific tile.
-     * 
+     *
      * Calculates shortest rotation angle to face target:
      * - turnAngle = targetAngle - currentHeading
      * - Normalized to [-π, π] range to ensure shortest rotation path
      * - Uses signum() to determine turn direction (positive = CCW, negative = CW)
-     * 
+     *
      * Normalization prevents full 360° rotations when target is slightly behind
      * robot.
-     * 
+     *
      * @param target Target tile coordinate
      * @param power  Turn power (0-1)
      */
@@ -291,7 +383,7 @@ public class DriveSubsystem {
 
     /**
      * Get distance to a specific tile
-     * 
+     *
      * @param target Target tile coordinate
      * @return Distance in inches
      */
@@ -301,7 +393,7 @@ public class DriveSubsystem {
 
     /**
      * Get angle to a specific tile
-     * 
+     *
      * @param target Target tile coordinate
      * @return Angle in radians
      */
@@ -311,7 +403,7 @@ public class DriveSubsystem {
 
     /**
      * Check if robot is at a specific tile (within tolerance)
-     * 
+     *
      * @param target    Target tile coordinate
      * @param tolerance Tolerance in inches
      * @return True if within tolerance
@@ -334,4 +426,10 @@ public class DriveSubsystem {
             telemetry.addData("Tile Offset", "X: %.1f, Y: %.1f", offset[0], offset[1]);
         }
     }
+    public boolean isAtTarget() {
+        // Check if all motors have reached their target positions
+        return !leftFront.isBusy() && !leftRear.isBusy() && !rightFront.isBusy() && !rightRear.isBusy();
+    }
+
+
 }

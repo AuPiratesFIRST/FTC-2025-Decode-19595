@@ -21,7 +21,7 @@ public class IntakeSubsystem {
 
     // Default power settings
     private double intakePower = 0.8; // Forward intake power
-    private double outtakePower = -0.6; // Reverse/outtake power
+    private double outtakePower = -0; // Reverse/outtake power
 
     public enum IntakeDirection {
         FORWARD(1),
