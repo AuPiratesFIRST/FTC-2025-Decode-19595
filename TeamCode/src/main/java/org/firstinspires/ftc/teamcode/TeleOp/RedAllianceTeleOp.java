@@ -48,7 +48,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
     private int spindexerPositionIndex = 0;
     private boolean intakeMode = true; // true = Intake, false = Outtake
     private boolean spindexerIsMoving = false;
-    private boolean shooterNeedsToSpinUp = false;
+    private boolean shooterNeedsToSpinUp = true;
     private boolean ballSettling = false;
     private boolean manualControlMode = false; // true = Manual, false = Automated
     
@@ -92,7 +92,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
     private static final int BALL_SETTLING_TICKS = 34;
     
     // Shooter power - HIGH setting for maximum speed
-    private static final double SHOOTER_POWER = 1; // 85% = HIGH speed (~5100 RPM)
+    private static final double SHOOTER_POWER = 0.87; // 85% = HIGH speed (~5100 RPM)
 
     // Alliance configuration
     private static final boolean IS_BLUE_ALLIANCE = false;

@@ -41,7 +41,7 @@ public class ShooterSubsystem {
     public enum ShooterSpeed {
         LOW(0.5),
         MEDIUM(0.7),
-        HIGH(0.1),
+        HIGH(0.9),
         MAX(1.0);
 
         private final double power;

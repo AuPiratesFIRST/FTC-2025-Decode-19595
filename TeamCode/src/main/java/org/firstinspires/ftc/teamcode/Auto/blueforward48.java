@@ -5,8 +5,8 @@ import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
 
-@Autonomous(name = "Drive Forward 48 Inches", group = "Testing")
-public class DriveForward48 extends LinearOpMode {
+@Autonomous(name = "blueDrive Forward 48 Inches", group = "Testing")
+public class blueforward48 extends LinearOpMode {
 
     @Override
     public void runOpMode() throws InterruptedException {
@@ -24,7 +24,8 @@ public class DriveForward48 extends LinearOpMode {
         telemetry.update();
 
         // *** Power usually around 0.5–0.7 for encoder accuracy ***
-        drive.moveInches(48, 0.6);
+        drive.moveInches(44, 0.6);
+
 
         telemetry.addLine("Done.");
         telemetry.update();

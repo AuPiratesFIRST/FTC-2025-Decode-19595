@@ -77,7 +77,11 @@ public class OldSpindexerSubsystem {
         spindexerMotor = hardwareMap.get(DcMotorEx.class, "Spindexer");
         configureMotor();
     }
+    private boolean pidEnabled = true;
 
+    public void setPIDEnabled(boolean enabled) {
+        pidEnabled = enabled;
+    }
     private void configureMotor() {
         // Set motor direction to REVERSE
         spindexerMotor.setDirection(DcMotor.Direction.REVERSE);

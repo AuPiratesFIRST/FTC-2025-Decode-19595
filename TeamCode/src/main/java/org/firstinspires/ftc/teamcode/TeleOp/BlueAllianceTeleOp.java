@@ -89,7 +89,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
     private static final int BALL_SETTLING_TICKS = 34;
     
     // Shooter power
-    private static final double SHOOTER_POWER = 0.7; // 70% = ~4200 RPM
+    private static final double SHOOTER_POWER = 0.87; // 70% = ~4200 RPM
 
     // Alliance configuration
     private static final boolean IS_BLUE_ALLIANCE = true;
@@ -132,9 +132,9 @@ public class BlueAllianceTeleOp extends LinearOpMode {
     }
 
     private void handleDriving() {
-        float forward = -gamepad1.left_stick_y;
-        float strafe = gamepad1.left_stick_x;
-        float turn = gamepad1.right_stick_x;
+        float forward = gamepad1.left_stick_y;
+        float strafe = -gamepad1.left_stick_x;
+        float turn = -gamepad1.right_stick_x;
         
         double denominator = JavaUtil.maxOfList(JavaUtil.createListWith(0.5, 0.5 + Math.abs(turn)));
 
