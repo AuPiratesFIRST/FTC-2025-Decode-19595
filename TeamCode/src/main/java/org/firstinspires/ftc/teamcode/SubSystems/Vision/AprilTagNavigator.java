@@ -101,7 +101,7 @@ public class AprilTagNavigator {
         // Stream the VisionPortal feed to FTC Dashboard (VisionPortal implements
         // CameraStreamSource)
         // Reduced to 15 FPS to avoid DS lag on weaker hardware
-        FtcDashboard.getInstance().startCameraStream(visionPortal, 15);
+//        FtcDashboard.getInstance().startCameraStream(visionPortal, 15);
 
     }
 

@@ -2,35 +2,13 @@ package org.firstinspires.ftc.teamcode.SubSystems.test;
 
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
-import org.firstinspires.ftc.robotcore.external.Telemetry;
+
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.IntegratedShooterSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.TileCoordinate;
 
-/**
- * Integrated test for shooter with AprilTag localization and spindexer.
- * 
- * Tests the complete shooting system:
- * - AprilTag localization to get robot position
- * - Distance calculation from robot to goal
- * - Shot profile power calculation based on distance
- * - Shooter velocity control with RPM targeting
- * - Spindexer integration for artifact positioning
- * 
- * Controls:
- * - Right Trigger: Shoot (calculates distance and sets power automatically)
- * - Left Trigger: Manual power adjustment
- * - A Button: Toggle spindexer position 1
- * - B Button: Toggle spindexer position 2
- * - X Button: Toggle spindexer position 3
- * - Y Button: Toggle alliance (Blue/Red)
- * - D-Pad Up: Increase manual power
- * - D-Pad Down: Decrease manual power
- * - Right Bumper: Stop shooter
- * - Left Bumper: Update localization from AprilTag
- */
 @TeleOp(name = "Integrated Shooter Test", group = "Test")
 public class IntegratedShooterTest extends LinearOpMode {
 
@@ -41,6 +19,7 @@ public class IntegratedShooterTest extends LinearOpMode {
 
     private boolean isBlueAlliance = true;
     private double manualPower = 0.7;
+
     private boolean lastA = false;
     private boolean lastB = false;
     private boolean lastX = false;
@@ -48,10 +27,10 @@ public class IntegratedShooterTest extends LinearOpMode {
 
     @Override
     public void runOpMode() throws InterruptedException {
+
         telemetry.addData("Status", "Initializing Integrated Shooter Test...");
         telemetry.update();
 
-        // Initialize subsystems
         driveSubsystem = new DriveSubsystem(hardwareMap, telemetry);
         aprilTagNavigator = new AprilTagNavigator(driveSubsystem, hardwareMap, telemetry);
         shooter = new IntegratedShooterSubsystem(hardwareMap, telemetry);
@@ -60,163 +39,133 @@ public class IntegratedShooterTest extends LinearOpMode {
         telemetry.addData("Status", "Ready");
         telemetry.addLine();
         telemetry.addLine("=== CONTROLS ===");
-        telemetry.addLine("Right Trigger: Auto-shoot (distance-based)");
-        telemetry.addLine("Left Trigger: Manual power adjustment");
-        telemetry.addLine("A: Spindexer Position 1");
-        telemetry.addLine("B: Spindexer Position 2");
-        telemetry.addLine("X: Spindexer Position 3");
-        telemetry.addLine("Y: Toggle Alliance (Blue/Red)");
-        telemetry.addLine("D-Pad Up: Increase manual power");
-        telemetry.addLine("D-Pad Down: Decrease manual power");
-        telemetry.addLine("Right Bumper: Stop shooter");
-        telemetry.addLine("Left Bumper: Update localization");
+        telemetry.addLine("Right Trigger: Auto-shoot");
+        telemetry.addLine("Left Trigger: Manual power");
+        telemetry.addLine("A/B/X: Spindexer positions");
+        telemetry.addLine("Y: Toggle Alliance");
+        telemetry.addLine("D-Pad Up/Down: Adjust manual power");
+        telemetry.addLine("RB: Stop shooter");
+        telemetry.addLine("LB: Update localization");
         telemetry.update();
 
         waitForStart();
 
         while (opModeIsActive()) {
-            // Update spindexer PID control
-            spindexer.update();
 
-            // Update AprilTag localization (continuous)
+            // Update subsystems
+            spindexer.update();
             aprilTagNavigator.updateRobotPositionFromTriangulation();
 
-            // Get robot position from localization
             TileCoordinate robotPosition = driveSubsystem.getCurrentPosition();
             TileCoordinate goalPosition = IntegratedShooterSubsystem.getGoalPosition(isBlueAlliance);
 
-            // Calculate distance to goal
-            double distanceToGoal = robotPosition != null && goalPosition != null
+            // Get distance to goal (safe)
+            double distanceToGoal = (robotPosition != null && goalPosition != null)
                     ? robotPosition.distanceTo(goalPosition)
                     : 0.0;
 
-            // Calculate power from shot profile based on distance
-            double calculatedPower = shooter.calculateMotorPower(distanceToGoal,
-                    IntegratedShooterSubsystem.GOAL_HEIGHT_INCHES);
+            // FIXED SYNTAX ERROR (added closing parenthesis)
+            double calculatedPower = shooter.calculateMotorPower(distanceToGoal);
 
-            // ==================== CONTROLS ====================
+            // ===== CONTROLS =====
 
-            // Right Trigger: Auto-shoot using distance-based power
+            // Auto shoot
             if (gamepad1.right_trigger > 0.1) {
                 if (robotPosition != null) {
                     shooter.shootArtifact(robotPosition, isBlueAlliance);
                 } else {
-                    telemetry.addData("Error", "Robot position not localized!");
+                    telemetry.addData("Error", "Robot not localized!");
                 }
             }
 
-            // Left Trigger: Manual power adjustment
+            // Manual shoot power
             if (gamepad1.left_trigger > 0.1) {
                 shooter.setPower(manualPower);
             }
 
-            // D-Pad Up: Increase manual power
             if (gamepad1.dpad_up) {
                 manualPower = Math.min(1.0, manualPower + 0.01);
-                sleep(50); // Debounce
+                sleep(50);
             }
-
-            // D-Pad Down: Decrease manual power
             if (gamepad1.dpad_down) {
                 manualPower = Math.max(0.0, manualPower - 0.01);
-                sleep(50); // Debounce
+                sleep(50);
             }
 
-            // Right Bumper: Stop shooter
             if (gamepad1.right_bumper) {
                 shooter.stop();
-                sleep(200); // Debounce
+                sleep(150);
             }
 
-            // Left Bumper: Force localization update
+            // Force AprilTag update
             if (gamepad1.left_bumper) {
                 aprilTagNavigator.updateRobotPositionFromTriangulation();
-                sleep(200); // Debounce
+                sleep(150);
             }
 
-            // Spindexer Position Controls
+            // Spindexer position A
             if (gamepad1.a && !lastA) {
                 spindexer.goToPosition(OldSpindexerSubsystem.SpindexerPosition.POSITION_1);
             }
             lastA = gamepad1.a;
 
+            // Spindexer position B
             if (gamepad1.b && !lastB) {
                 spindexer.goToPosition(OldSpindexerSubsystem.SpindexerPosition.POSITION_2);
             }
             lastB = gamepad1.b;
 
+            // Spindexer position X
             if (gamepad1.x && !lastX) {
                 spindexer.goToPosition(OldSpindexerSubsystem.SpindexerPosition.POSITION_3);
             }
             lastX = gamepad1.x;
 
-            // Toggle Alliance
+            // Alliance toggle
             if (gamepad1.y && !lastY) {
                 isBlueAlliance = !isBlueAlliance;
-                sleep(200); // Debounce
+                sleep(200);
             }
             lastY = gamepad1.y;
 
-            // ==================== TELEMETRY ====================
+            // ========== TELEMETRY ==========
 
-            telemetry.addData("=== INTEGRATED SHOOTER TEST ===", "");
-            telemetry.addLine();
+            telemetry.addLine("=== INTEGRATED SHOOTER TEST ===");
 
-            // Localization Info
-            telemetry.addData("=== LOCALIZATION ===", "");
-            boolean isLocalized = aprilTagNavigator.isLocalized();
-            telemetry.addData("Localized", isLocalized ? "YES ✓" : "NO ✗");
+            telemetry.addLine("\n--- Localizaton ---");
+            telemetry.addData("Localized", aprilTagNavigator.isLocalized());
             if (robotPosition != null) {
-                telemetry.addData("Robot Position", robotPosition.getTilePosition());
-                telemetry.addData("Robot (inches)", "X: %.1f, Y: %.1f",
+                telemetry.addData("Robot Tile", robotPosition.getTilePosition());
+                telemetry.addData("Robot Inches", "X: %.1f, Y: %.1f",
                         robotPosition.getX(), robotPosition.getY());
             } else {
-                telemetry.addData("Robot Position", "NOT LOCALIZED");
+                telemetry.addData("Robot Position", "NO DATA");
             }
 
-            // Goal Info
+            telemetry.addLine("\n--- Goal ---");
             telemetry.addData("Alliance", isBlueAlliance ? "BLUE" : "RED");
             if (goalPosition != null) {
-                telemetry.addData("Goal Position", "X: %.1f, Y: %.1f",
+                telemetry.addData("Goal", "X: %.1f, Y: %.1f",
                         goalPosition.getX(), goalPosition.getY());
             }
-            telemetry.addData("Distance to Goal", "%.1f inches", distanceToGoal);
-            telemetry.addLine();
+            telemetry.addData("Distance to Goal", "%.1f in", distanceToGoal);
 
-            // Shot Profile Info
-            telemetry.addData("=== SHOT PROFILE ===", "");
-            telemetry.addData("Calculated Power", "%.2f (from distance)", calculatedPower);
+            telemetry.addLine("\n--- Shooter ---");
+            telemetry.addData("Auto Power", "%.2f", calculatedPower);
             telemetry.addData("Manual Power", "%.2f", manualPower);
-            telemetry.addLine();
-
-            // Simulation Comparison (Distance-based vs Physics-based)
-            shooter.updateSimulationTelemetry(distanceToGoal, IntegratedShooterSubsystem.GOAL_HEIGHT_INCHES);
-            telemetry.addLine();
-
-            // Shooter Info
-            telemetry.addData("=== SHOOTER ===", "");
             shooter.updateTelemetry();
-            telemetry.addLine();
 
-            // Spindexer Info
-            telemetry.addData("=== SPINDEXER ===", "");
-            telemetry.addData("Current Position", spindexer.getCurrentPosition());
-            telemetry.addData("Target Position", spindexer.getTargetPosition());
-            telemetry.addData("At Position", spindexer.isAtPosition() ? "YES ✓" : "NO ✗");
-            telemetry.addLine();
-
-            // Controls Status
-            telemetry.addData("=== CONTROLS ===", "");
-            telemetry.addData("Right Trigger", gamepad1.right_trigger > 0.1 ? "ACTIVE (Auto-shoot)" : "Inactive");
-            telemetry.addData("Left Trigger", gamepad1.left_trigger > 0.1 ? "ACTIVE (Manual)" : "Inactive");
-            telemetry.addData("D-Pad", gamepad1.dpad_up ? "UP" : gamepad1.dpad_down ? "DOWN" : "None");
+            telemetry.addLine("\n--- Spindexer ---");
+            telemetry.addData("Current", spindexer.getCurrentPosition());
+            telemetry.addData("Target", spindexer.getTargetPosition());
+            telemetry.addData("At Target", spindexer.isAtPosition());
 
             telemetry.update();
+
             sleep(20);
         }
 
-        // Cleanup
         shooter.stop();
-        spindexer.update(); // Final update
+        spindexer.update();
     }
 }
