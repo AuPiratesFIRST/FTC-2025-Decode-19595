@@ -201,6 +201,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
         if (dpadDown && !dpadDownLast && !manualControlMode) {
             intakeMode = !intakeMode;
             spindexerPositionIndex = 0; // Reset position when mode changes
+            spindexer.setIntakeMode(intakeMode); // Update subsystem mode for position selection
         }
         dpadDownLast = dpadDown;
 
@@ -221,12 +222,12 @@ public class BlueAllianceTeleOp extends LinearOpMode {
         
         if (dpadLeft && !spindexerIsMoving) {
             spindexerPositionIndex = (spindexerPositionIndex - 1 + 3) % 3; // Move backward
-            spindexer.goToPosition(spindexerPositionIndex);
+            spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
             spindexerIsMoving = true;
         }
         if (dpadRight && !spindexerIsMoving) {
             spindexerPositionIndex = (spindexerPositionIndex + 1) % 3; // Move forward
-            spindexer.goToPosition(spindexerPositionIndex);
+            spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
             spindexerIsMoving = true;
         }
 
@@ -297,10 +298,9 @@ public class BlueAllianceTeleOp extends LinearOpMode {
             // Advance to next position
             spindexerPositionIndex = (spindexerPositionIndex + 1) % 3;
             
-            // Use subsystem's goToPosition with index (uses standard 0, 717, 1434 positions)
-            // For custom intake/outtake positions, you would need to extend the subsystem
-            // For now, using standard positions - can be enhanced later
-            spindexer.goToPosition(spindexerPositionIndex);
+            // Use subsystem method that automatically selects position based on current mode
+            // This uses intake positions in intake mode, outtake positions in outtake mode
+            spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
             spindexerIsMoving = true;
         }
         spindexerPressLast = spPress;

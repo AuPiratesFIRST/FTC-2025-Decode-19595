@@ -83,17 +83,17 @@ public class AutoOuttakeController {
 
             case WAITING_FOR_SHOOTER:
                 if (shooter.isAtTargetRPM()) {
-                    spindexer.goToPosition(1); // Move spindexer to second intake position
-                    if (spindexer.isAtPosition()) {
-                        state = State.OUTTAKING;
-                        stateStartTime = System.currentTimeMillis();
-                        spindexer.setIntakeMode(false);
-                    }
-                } else if (System.currentTimeMillis() - stateStartTime > shooterTimeoutMs) {
-                    // Timeout - proceed anyway
+                    // Rotate to starting position based on motif (position 0 for first color)
+                    spindexer.setIntakeMode(false); // Switch to outtake mode
+                    spindexer.rotateToMotifStartPosition(colorSensorSubsystem.getMotif());
                     state = State.OUTTAKING;
                     stateStartTime = System.currentTimeMillis();
+                } else if (System.currentTimeMillis() - stateStartTime > shooterTimeoutMs) {
+                    // Timeout - proceed anyway
                     spindexer.setIntakeMode(false);
+                    spindexer.rotateToMotifStartPosition(colorSensorSubsystem.getMotif());
+                    state = State.OUTTAKING;
+                    stateStartTime = System.currentTimeMillis();
                     if (telemetry != null) telemetry.addData("AutoOuttake", "Shooter timeout - proceeding");
                 }
                 break;
@@ -107,15 +107,24 @@ public class AutoOuttakeController {
                     break;
                 }
 
+                // Wait for spindexer to reach position before moving to next
                 if (!spindexer.isMoving() && !spindexer.isSettling()) {
-                    spindexer.goToPosition((spindexer.getIndex() + 1) % 3);
+                    // Check if we've waited long enough after reaching position (for ball to fire)
+                    long timeSinceLastMove = System.currentTimeMillis() - stateStartTime;
+                    if (timeSinceLastMove > 300) { // 300ms delay after position reached
+                        // Move to next position
+                        int nextIndex = (spindexer.getIndex() + 1) % 3;
+                        spindexer.goToPositionForCurrentMode(nextIndex);
+                        stateStartTime = System.currentTimeMillis(); // Reset timer for next position
+                    }
                 }
 
                 spindexer.update();
 
+                // Count shot as complete when spindexer reaches position and delay has passed
                 if (!spindexer.isMoving() && !spindexer.isSettling()) {
                     long now = System.currentTimeMillis();
-                    if (now - stateStartTime > 100) {
+                    if (now - stateStartTime > 400) { // Increased delay: 400ms after position reached
                         outtakePerformed++;
                         stateStartTime = now;
                     }

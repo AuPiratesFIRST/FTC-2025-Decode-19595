@@ -82,11 +82,8 @@ public class RedAllianceTeleOp extends LinearOpMode {
         return normalized;
     }
     
-    private static final int[] OUTTAKE_POSITIONS = {
-        normalizePosition(-90),   // 2060
-        normalizePosition(-265),  // 1885
-        normalizePosition(-434)   // 1716
-    };
+    // Outtake positions are now managed by OldSpindexerSubsystem
+    // Use spindexer.getOuttakePositionTicks(index) or spindexer.goToPositionForCurrentMode(index)
     
     // Ball settling: 0.25" counterclockwise
     private static final int BALL_SETTLING_TICKS = 34;
@@ -213,6 +210,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
         if (dpadDown && !dpadDownLast && !manualControlMode) {
             intakeMode = !intakeMode;
             spindexerPositionIndex = 0; // Reset position when mode changes
+            spindexer.setIntakeMode(intakeMode); // Update subsystem mode for position selection
         }
         dpadDownLast = dpadDown;
 
@@ -244,14 +242,15 @@ public class RedAllianceTeleOp extends LinearOpMode {
         }
         
         // Position controls (only if not using manual power)
+        // Use subsystem method that automatically selects intake/outtake position based on mode
         if (dpadLeft && !spindexerIsMoving) {
             spindexerPositionIndex = (spindexerPositionIndex - 1 + 3) % 3; // Move backward
-            spindexer.goToPosition(spindexerPositionIndex);
+            spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
             spindexerIsMoving = true;
         }
         if (dpadRight && !spindexerIsMoving) {
             spindexerPositionIndex = (spindexerPositionIndex + 1) % 3; // Move forward
-            spindexer.goToPosition(spindexerPositionIndex);
+            spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
             spindexerIsMoving = true;
         }
 
@@ -315,10 +314,9 @@ public class RedAllianceTeleOp extends LinearOpMode {
             // Advance to next position
             spindexerPositionIndex = (spindexerPositionIndex + 1) % 3;
             
-            // Use subsystem's goToPosition with index (uses standard 0, 717, 1434 positions)
-            // For custom intake/outtake positions, you would need to extend the subsystem
-            // For now, using standard positions - can be enhanced later
-            spindexer.goToPosition(spindexerPositionIndex);
+            // Use subsystem method that automatically selects position based on current mode
+            // This uses intake positions in intake mode, outtake positions in outtake mode
+            spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
             spindexerIsMoving = true;
         }
         spindexerPressLast = spPress;

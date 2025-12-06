@@ -3,6 +3,7 @@ package org.firstinspires.ftc.teamcode.SubSystems.test;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.NormalizedColorSensor;
+import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.robotcore.external.JavaUtil;
@@ -57,6 +58,10 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
     private boolean shooterManuallyControlled = false;
 
+    // Shooting timing - track shot number for better timing
+    private int shotNumber = 0;
+    private ElapsedTime shotTimer;
+
     // === BUTTON STATE TRACKING (DEBOUNCING) ===
     private boolean spindexerPressLast = false;
     private boolean dpadDownLast = false;
@@ -72,6 +77,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private double driveSpeed = 1.0;
     private boolean aPressedLast = false;
     private boolean bPressedLast = false;
+    private boolean colorSensorResetPressedLast = false;
 
     // Positions are now managed by OldSpindexerSubsystem
     // Use spindexer.getIntakePositionTicks(index) or
@@ -109,6 +115,9 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         }
 
         obeliskDetector = new ObeliskMotifDetector(aprilTag, telemetry);
+
+        // Initialize timers
+        shotTimer = new ElapsedTime();
 
         telemetry.addData("Status", "Initialized - RED ALLIANCE TEST");
         telemetry.update();
@@ -243,6 +252,31 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         }
         dpadDownLast = dpadDown;
 
+        // Button B: Reset spindexer to motif start position (for shooting)
+        boolean b = gamepad2.b;
+        if (b && !bPressedLast && !manualControlMode) {
+            // Get current motif from obelisk detector or use fallback
+            ArtifactColor[] currentMotif = null;
+            if (obeliskDetector != null) {
+                currentMotif = obeliskDetector.getMotif();
+            }
+            if (currentMotif == null) {
+                // Fallback motif
+                currentMotif = new ArtifactColor[] {
+                        ArtifactColor.GREEN, ArtifactColor.PURPLE, ArtifactColor.GREEN
+                };
+            }
+
+            // Switch to outtake mode and rotate to starting position
+            spindexer.setIntakeMode(false);
+            spindexer.rotateToMotifStartPosition(currentMotif);
+            spindexerIsMoving = true;
+            spindexerPositionIndex = OldSpindexerSubsystem.getStartingPositionFromMotif(currentMotif);
+
+            telemetry.addData("Spindexer", "Rotated to motif start position");
+        }
+        bPressedLast = b;
+
         if (manualControlMode) {
             handleManualSpindexer();
             return;
@@ -307,6 +341,8 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
                     if (!shooterManuallyControlled) {
                         shooter.setTargetRPM(SHOOTER_TARGET_RPM);
                         shooterNeedsToSpinUp = true;
+                        actionTimer.reset(); // Reset timer for shooter spin-up
+                        shotTimer.reset(); // Reset shot timer
                     }
                 }
             }
@@ -316,22 +352,45 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
             ballSettling = false;
 
         if (shooterNeedsToSpinUp && !shooterManuallyControlled) {
-            if (shooter.isAtTargetRPM())
-                shooterNeedsToSpinUp = false;
+            // Wait for shooter to be stable (at target RPM for at least 300ms for first
+            // shot, 200ms for others)
+            // This prevents first shot overshooting due to RPM instability
+            if (shooter.isAtTargetRPM()) {
+                long stabilityDelay = (shotNumber == 0) ? 300 : 200; // Longer delay for first shot
+                if (actionTimer.milliseconds() > stabilityDelay) {
+                    shooterNeedsToSpinUp = false;
+                }
+            } else {
+                actionTimer.reset(); // Reset if RPM drops
+            }
         }
 
         boolean spPress = gamepad2.a;
+
+        // Add minimum delay between shots to prevent rapid firing
+        // This helps with accuracy - first shot needs more time, subsequent shots can
+        // be faster
+        long minDelayBetweenShots = (!intakeMode && spindexerPositionIndex == 0) ? 400 : 250; // 400ms for first shot,
+                                                                                              // 250ms for others
         boolean canMove = !spindexerIsMoving &&
                 !ballSettling &&
-                (!shooterNeedsToSpinUp ||
-                        shooter.isAtTargetRPM() ||
-                        shooterManuallyControlled);
+                (!shooterNeedsToSpinUp || shooter.isAtTargetRPM() || shooterManuallyControlled) &&
+                (shotTimer.milliseconds() > minDelayBetweenShots || intakeMode); // Enforce delay between shots
 
         if (spPress && !spindexerPressLast && canMove) {
+            // Track shot number for timing adjustments
+            if (!intakeMode) {
+                shotNumber = spindexerPositionIndex;
+            }
+
             spindexerPositionIndex = (spindexerPositionIndex + 1) % 3;
             // Use subsystem method that automatically selects position based on mode
             spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
             spindexerIsMoving = true;
+
+            // Reset timers for next shot
+            actionTimer.reset();
+            shotTimer.reset();
         }
         spindexerPressLast = spPress;
     }

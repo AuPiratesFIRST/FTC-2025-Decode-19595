@@ -5,6 +5,7 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.Range;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
+import org.firstinspires.ftc.teamcode.SubSystems.Scoring.ArtifactColor;
 
 /**
  * Vertical spindexer subsystem with PID control for precise position control,
@@ -27,23 +28,24 @@ public class OldSpindexerSubsystem {
 
     // Intake positions (evenly spaced 120° apart)
     private static final int[] INTAKE_POSITIONS = {
-        POSITION_1_TICKS,  // 0
-        POSITION_2_TICKS,  // ~717
-        POSITION_3_TICKS   // ~1434
+            POSITION_1_TICKS, // 0
+            POSITION_2_TICKS, // ~717
+            POSITION_3_TICKS // ~1434
     };
 
     // Outtake positions (raw encoder values from physical measurement)
     // These are the actual encoder ticks when physically moved to outtake positions
     // Using raw values instead of normalized to avoid position calculation issues
     private static final int[] OUTTAKE_POSITIONS = {
-        2060,  // Position 0 - raw encoder value
-        1885,  // Position 1 - raw encoder value
-        1716   // Position 2 - raw encoder value
+            2060, // Position 0 - raw encoder value
+            1885, // Position 1 - raw encoder value
+            1716 // Position 2 - raw encoder value
     };
 
     // Ball settling constants
     // BALL_SETTLE_TICKS: Small counterclockwise movement to push ball past bar
-    // SETTLE_POWER: Power used during settling (increased for better torque to push past bar)
+    // SETTLE_POWER: Power used during settling (increased for better torque to push
+    // past bar)
     private static final int BALL_SETTLE_TICKS = 34;
     private static final double SETTLE_POWER = 0.6; // Increased from 0.4 for better torque
 
@@ -85,8 +87,14 @@ public class OldSpindexerSubsystem {
         POSITION_3(POSITION_3_TICKS);
 
         private final int ticks;
-        SpindexerPosition(int ticks) { this.ticks = ticks; }
-        public int getTicks() { return ticks; }
+
+        SpindexerPosition(int ticks) {
+            this.ticks = ticks;
+        }
+
+        public int getTicks() {
+            return ticks;
+        }
     }
 
     public OldSpindexerSubsystem(HardwareMap hardwareMap, Telemetry telemetry) {
@@ -95,9 +103,13 @@ public class OldSpindexerSubsystem {
         configureMotor();
     }
 
-    public void setTestMode(boolean enabled) { testMode = enabled; }
+    public void setTestMode(boolean enabled) {
+        testMode = enabled;
+    }
 
-    public void setPIDEnabled(boolean enabled) { pidEnabled = enabled; }
+    public void setPIDEnabled(boolean enabled) {
+        pidEnabled = enabled;
+    }
 
     private void configureMotor() {
         spindexerMotor.setDirection(DcMotor.Direction.REVERSE);
@@ -121,9 +133,15 @@ public class OldSpindexerSubsystem {
 
     public void goToPosition(int index) {
         switch (index) {
-            case 0: goToPosition(SpindexerPosition.POSITION_1); break;
-            case 1: goToPosition(SpindexerPosition.POSITION_2); break;
-            case 2: goToPosition(SpindexerPosition.POSITION_3); break;
+            case 0:
+                goToPosition(SpindexerPosition.POSITION_1);
+                break;
+            case 1:
+                goToPosition(SpindexerPosition.POSITION_2);
+                break;
+            case 2:
+                goToPosition(SpindexerPosition.POSITION_3);
+                break;
             default:
                 if (telemetry != null && testMode) {
                     telemetry.addData("Spindexer Error", "Invalid position index: " + index);
@@ -173,8 +191,11 @@ public class OldSpindexerSubsystem {
         error = shortestError(targetPosition, currentPosition);
         double proportional = error * kP;
 
-        if (Math.abs(error) > POSITION_TOLERANCE) { integral += error; }
-        else { integral = 0; }
+        if (Math.abs(error) > POSITION_TOLERANCE) {
+            integral += error;
+        } else {
+            integral = 0;
+        }
         integral = Range.clip(integral, -500, 500);
         double integralTerm = integral * kI;
 
@@ -185,7 +206,9 @@ public class OldSpindexerSubsystem {
         output = Range.clip(output, -currentPowerLimit, currentPowerLimit);
         output *= SPEED_MULTIPLIER;
 
-        if (Math.abs(output) < MIN_POWER_THRESHOLD) { output = 0; }
+        if (Math.abs(output) < MIN_POWER_THRESHOLD) {
+            output = 0;
+        }
 
         spindexerMotor.setPower(output);
 
@@ -208,7 +231,9 @@ public class OldSpindexerSubsystem {
         return spindexerMotor.getCurrentPosition();
     }
 
-    public int getTargetPosition() { return targetPosition; }
+    public int getTargetPosition() {
+        return targetPosition;
+    }
 
     public void setPIDCoefficients(double kP, double kI, double kD) {
         this.kP = kP;
@@ -216,13 +241,16 @@ public class OldSpindexerSubsystem {
         this.kD = kD;
     }
 
-    public double[] getPIDCoefficients() { return new double[] { kP, kI, kD }; }
+    public double[] getPIDCoefficients() {
+        return new double[] { kP, kI, kD };
+    }
 
     /**
      * Set manual power for direct motor control (used in manual mode).
      * Motor runs in RUN_WITHOUT_ENCODER mode for maximum torque.
      * 
-     * @param power Motor power (-1.0 to 1.0). Positive = forward, Negative = reverse
+     * @param power Motor power (-1.0 to 1.0). Positive = forward, Negative =
+     *              reverse
      */
     public void setManualPower(double power) {
         spindexerMotor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
@@ -253,28 +281,33 @@ public class OldSpindexerSubsystem {
 
     private int normalizeTicks(int ticks) {
         int normalized = ticks % (int) TICKS_PER_REVOLUTION;
-        if (normalized < 0) { normalized += TICKS_PER_REVOLUTION; }
+        if (normalized < 0) {
+            normalized += TICKS_PER_REVOLUTION;
+        }
         return normalized;
     }
 
     private double shortestError(int target, int current) {
-    double raw = target - current;
+        double raw = target - current;
 
-    // FORCE always moving FORWARD from position 2 to 0
-    // when target == 0 AND current is near the high end of the rotation
-    if (target == 0 && current > (TICKS_PER_REVOLUTION * 0.5)) {
-        return (TICKS_PER_REVOLUTION - current); // forward to finish the circle
+        // FORCE always moving FORWARD from position 2 to 0
+        // when target == 0 AND current is near the high end of the rotation
+        if (target == 0 && current > (TICKS_PER_REVOLUTION * 0.5)) {
+            return (TICKS_PER_REVOLUTION - current); // forward to finish the circle
+        }
+
+        // --- Normal shortest path logic ---
+        if (raw > TICKS_PER_REVOLUTION / 2)
+            raw -= TICKS_PER_REVOLUTION;
+        if (raw < -TICKS_PER_REVOLUTION / 2)
+            raw += TICKS_PER_REVOLUTION;
+
+        return raw;
     }
 
-    // --- Normal shortest path logic ---
-    if (raw > TICKS_PER_REVOLUTION / 2)  raw -= TICKS_PER_REVOLUTION;
-    if (raw < -TICKS_PER_REVOLUTION / 2) raw += TICKS_PER_REVOLUTION;
-
-    return raw;
-}
-
     public void updateTelemetry() {
-        if (telemetry == null) return;
+        if (telemetry == null)
+            return;
 
         int current = getCurrentPosition();
         double error = shortestError(targetPosition, current);
@@ -287,9 +320,8 @@ public class OldSpindexerSubsystem {
         telemetry.addData("Main Target Reached", mainTargetReached);
     }
 
-
     // ============================================================
-    //              *** REQUIRED METHODS ADDED BELOW ***
+    // *** REQUIRED METHODS ADDED BELOW ***
     // ============================================================
 
     /** Returns whether the PID controller is currently rotating */
@@ -314,8 +346,10 @@ public class OldSpindexerSubsystem {
         double d2 = Math.abs(shortestError(pos2, t));
         double d3 = Math.abs(shortestError(pos3, t));
 
-        if (d1 <= d2 && d1 <= d3) return 0;
-        if (d2 <= d1 && d2 <= d3) return 1;
+        if (d1 <= d2 && d1 <= d3)
+            return 0;
+        if (d2 <= d1 && d2 <= d3)
+            return 1;
         return 2;
     }
 
@@ -325,7 +359,7 @@ public class OldSpindexerSubsystem {
     }
 
     // ============================================================
-    //              *** INTAKE/OUTTAKE POSITION METHODS ***
+    // *** INTAKE/OUTTAKE POSITION METHODS ***
     // ============================================================
 
     /**
@@ -359,7 +393,8 @@ public class OldSpindexerSubsystem {
      * Get position ticks for current mode (intake or outtake) and index
      * 
      * @param index Position index (0, 1, or 2)
-     * @return Encoder ticks for the position based on current mode, or -1 if invalid index
+     * @return Encoder ticks for the position based on current mode, or -1 if
+     *         invalid index
      */
     public int getPositionTicksForCurrentMode(int index) {
         if (intakeMode) {
@@ -416,5 +451,39 @@ public class OldSpindexerSubsystem {
      */
     public static int[] getOuttakePositions() {
         return OUTTAKE_POSITIONS.clone();
+    }
+
+    /**
+     * Get the starting spindexer position index based on motif pattern.
+     * The first color in the motif determines which position should be shot first.
+     * 
+     * For motif GPG:
+     * - Position 0 has first color (G) - should shoot first
+     * - Returns index 0
+     * 
+     * @param motif 3-color motif array (e.g., [GREEN, PURPLE, GREEN])
+     * @return Starting position index (0, 1, or 2) for shooting sequence
+     */
+    public static int getStartingPositionFromMotif(ArtifactColor[] motif) {
+        if (motif == null || motif.length < 3) {
+            return 0; // Default to position 0 if invalid motif
+        }
+
+        // The first color in the motif is at position 0
+        // So we start shooting from position 0
+        // This assumes positions 0, 1, 2 correspond to motif colors 0, 1, 2
+        return 0; // Always start at position 0 (first ball to shoot)
+    }
+
+    /**
+     * Rotate spindexer to the correct starting position based on motif.
+     * This should be called when you want to prepare for shooting based on detected
+     * motif.
+     * 
+     * @param motif 3-color motif array
+     */
+    public void rotateToMotifStartPosition(ArtifactColor[] motif) {
+        int startIndex = getStartingPositionFromMotif(motif);
+        goToPositionForCurrentMode(startIndex);
     }
 }
