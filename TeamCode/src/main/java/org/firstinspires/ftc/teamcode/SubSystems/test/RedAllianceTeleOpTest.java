@@ -30,7 +30,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private static final double POSITION_DEADBAND = 0.75;          // inch accuracy
     private static final double ANGLE_DEADBAND_DEG = 1.5;          // degree accuracy
 
-    // === ORIGINAL VARIABLES (UNCHANGED) ===
+
     private DriveSubsystem drive;
     private IntakeSubsystem intake;
     private ShooterSubsystem shooter;
@@ -75,7 +75,9 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     };
 
     private static final int BALL_SETTLING_TICKS = 34;
-    private static final double SHOOTER_POWER = 0.87;
+   
+    private static final double SHOOTER_TARGET_RPM = 5220.0;
+
 
     private static final boolean IS_BLUE_ALLIANCE = false;
     private static final int TARGET_TAG_ID = 24;
@@ -108,8 +110,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         aprilTag.closeVision();
     }
 
-    // === ORIGINAL DRIVING / INTAKE / SHOOTER / SPINDEXER FUNCTIONS (UNCHANGED) ===
-    // (YOUR CODE LEFT EXACTLY AS YOU WROTE IT…)
+   
 
     private void handleDriving() {
         float forward = gamepad1.left_stick_y;
@@ -142,21 +143,21 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         else intake.setPower(0);
     }
 
-    private void handleShooter() {
-        boolean rb = gamepad2.right_bumper;
-        if (rb && !rbPressedLast) {
-            shooterManuallyControlled = true;
-            shooterNeedsToSpinUp = false;
+   private void handleShooter() {
+    boolean rb = gamepad2.right_bumper;
+    if (rb && !rbPressedLast) {
+        shooterManuallyControlled = true;
+        shooterNeedsToSpinUp = false;
 
-            if (shooter.getTargetRPM() > 0) {
-                shooter.stop();
-                shooterManuallyControlled = false;
-            } else {
-                shooter.setPower(SHOOTER_POWER);
-            }
+        if (shooter.getTargetRPM() > 0) {
+            shooter.stop();
+            shooterManuallyControlled = false;
+        } else {
+            shooter.setTargetRPM(SHOOTER_TARGET_RPM);
         }
-        rbPressedLast = rb;
     }
+    rbPressedLast = rb;
+}
 
     private void handleSpindexer() {
         boolean x = gamepad2.x;
@@ -226,7 +227,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
                     ballSettling = false;
                 } else {
                     if (!shooterManuallyControlled) {
-                        shooter.setPower(SHOOTER_POWER);
+            shooter.setTargetRPM(SHOOTER_TARGET_RPM);
                         shooterNeedsToSpinUp = true;
                     }
                 }
@@ -253,7 +254,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         spindexerPressLast = spPress;
     }
 
-    // === NEW FULL AUTO-ALIGNMENT INSERTED BELOW ===
+
     private void handleAprilTagAlignment() {
 
         if (gamepad2.y) {
