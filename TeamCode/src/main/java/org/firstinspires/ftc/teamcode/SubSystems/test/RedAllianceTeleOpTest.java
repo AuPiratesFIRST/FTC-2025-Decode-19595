@@ -99,6 +99,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
             handleDriving();
             handleIntake();
             handleShooter();
+            shooter.updateVoltageCompensation();
             handleSpindexer();
             handleAprilTagAlignment();
             updateTelemetry();
@@ -265,6 +266,12 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
             if (tag == null || tag.id != TARGET_TAG_ID) {
                 telemetry.addData("ALIGN", "Tag NOT found");
                 return;
+            }
+            
+            // while aligning, force shooter to spin
+
+            if (!shooterManuallyControlled) {
+            shooter.setTargetRPM(SHOOTER_TARGET_RPM);
             }
 
             double xOffset = tag.ftcPose.x;                         // +right, -left
