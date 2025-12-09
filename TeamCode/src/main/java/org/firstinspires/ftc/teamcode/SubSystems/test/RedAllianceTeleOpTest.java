@@ -22,13 +22,13 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     // === AUTO-ALIGNMENT CONSTANTS ADDED HERE ===
     private static final double DESIRED_SHOOTING_DISTANCE = 134;  // inches from tag angle
     private static final double DESIRED_SHOOTING_Angle = 21;
-    private static final double KP_STRAFE = 0.03;                  // x alignment
-    private static final double KP_FORWARD = 0.03;                 // z alignment
-    private static final double KP_ROT = 0.015;                    // yaw correction
+    private static final double KP_STRAFE = 0.018;                  // x alignment
+    private static final double KP_FORWARD =  0.015;                 // z alignment
+    private static final double KP_ROT = 0.012;                    // yaw correction
 
-    private static final double MAX_AUTO_POWER = 0.40;             // slow alignment mode
-    private static final double POSITION_DEADBAND = 0.75;          // inch accuracy
-    private static final double ANGLE_DEADBAND_DEG = 1.5;          // degree accuracy
+    private static final double MAX_AUTO_POWER = 0.22;             // slow alignment mode
+    private static final double POSITION_DEADBAND = 1.5;          // inch accuracy
+    private static final double ANGLE_DEADBAND_DEG = 3.0;          // degree accuracy
 
     // === ORIGINAL VARIABLES (UNCHANGED) ===
     private DriveSubsystem drive;
@@ -75,7 +75,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     };
 
     private static final int BALL_SETTLING_TICKS = 34;
-    private static final double SHOOTER_POWER = 0.87;
+    private static final double SHOOTER_RPM = 5180;
 
     private static final boolean IS_BLUE_ALLIANCE = false;
     private static final int TARGET_TAG_ID = 24;
@@ -141,7 +141,6 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         else if (gamepad2.left_bumper) intake.setPower(-1.0);
         else intake.setPower(0);
     }
-
     private void handleShooter() {
         boolean rb = gamepad2.right_bumper;
         if (rb && !rbPressedLast) {
@@ -152,7 +151,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
                 shooter.stop();
                 shooterManuallyControlled = false;
             } else {
-                shooter.setPower(SHOOTER_POWER);
+                shooter.setPower(SHOOTER_RPM);  // This will automatically adjust based on voltage
             }
         }
         rbPressedLast = rb;
@@ -226,7 +225,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
                     ballSettling = false;
                 } else {
                     if (!shooterManuallyControlled) {
-                        shooter.setPower(SHOOTER_POWER);
+                        shooter.setPower(SHOOTER_RPM);
                         shooterNeedsToSpinUp = true;
                     }
                 }

@@ -81,7 +81,7 @@ public class ShooterSubsystem {
         // Configure velocity PIDF coefficients for accurate velocity control
         // These values may need tuning based on your specific motor and load
         // Increased P and F slightly for better response at high RPMs
-        PIDFCoefficients velocityPIDF = new PIDFCoefficients(35.0, 0.15, 12.0, 15.0);
+        PIDFCoefficients velocityPIDF = new PIDFCoefficients(36.0, 0.15, 12.0, 15.0);
         leftShooterMotor.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, velocityPIDF);
         rightShooterMotor.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, velocityPIDF);
     }
