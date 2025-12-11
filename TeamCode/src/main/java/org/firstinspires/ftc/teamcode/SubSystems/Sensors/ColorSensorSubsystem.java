@@ -83,10 +83,7 @@ public class ColorSensorSubsystem {
             telemetry.addData("Val", "%.3f", hsvValues[2]);
             telemetry.addData("Alpha", "%.3f", colors.alpha);
 
-            if (colorSensor instanceof DistanceSensor) {
-                telemetry.addData("Distance (cm)", "%.3f",
-                        ((DistanceSensor) colorSensor).getDistance(com.qualcomm.robotcore.external.navigation.DistanceUnit.CM));
-            }
+
 
             telemetry.addData("MappedArtifact", mapped == null ? "UNKNOWN" : mapped.toString());
             ArtifactColor[] rampArray = detectedRamp.toArray(new ArtifactColor[0]);

@@ -6,6 +6,7 @@ import com.qualcomm.robotcore.hardware.NormalizedColorSensor;
 import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.robotcore.external.JavaUtil;
+import org.firstinspires.ftc.teamcode.SubSystems.Sensors.ColorSensorSubsystem;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
@@ -40,6 +41,8 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private ShooterSubsystem shooter;
     private OldSpindexerSubsystem spindexer;
     private AprilTagNavigator aprilTag;
+
+    private ColorSensorSubsystem colorSensorSubsystem;
 
     // New: vision -> obelisk motif + auto outtake controller
     private ObeliskMotifDetector obeliskDetector;
@@ -99,6 +102,14 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
+        NormalizedColorSensor normColor =
+                hardwareMap.get(NormalizedColorSensor.class, "sensor_color");
+
+        ArtifactColor[] motif = new ArtifactColor[]{
+                ArtifactColor.PURPLE, ArtifactColor.GREEN, ArtifactColor.PURPLE
+        };
+        colorSensorSubsystem = new ColorSensorSubsystem(normColor, null, telemetry, motif);
+
 
         // instantiate obelisk detector (uses aprilTag navigator)
         obeliskDetector = new ObeliskMotifDetector(aprilTag, telemetry);
@@ -130,7 +141,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         waitForStart();
 
         // After start: lock motif (use detected motif or fallback)
-        ArtifactColor[] motif = obeliskDetector.getMotif();
+        motif = obeliskDetector.getMotif();
         if (motif == null) {
             // fallback: either choose a default motif or let driver decide (default here is GPG/GPG-like)
             motif = new ArtifactColor[]{ArtifactColor.GREEN, ArtifactColor.PURPLE, ArtifactColor.GREEN};
@@ -142,8 +153,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
         // instantiate auto-outtake controller if we have a color sensor
         if (colorSensor != null) {
-            autoOuttake = new AutoOuttakeController(colorSensor, motif, spindexer, shooter, telemetry);
-            // tune defaults if needed:
+            autoOuttake = new AutoOuttakeController(colorSensorSubsystem, motif, spindexer, shooter, telemetry);// tune defaults if needed:
             autoOuttake.setScoreThreshold(6);
             autoOuttake.setTargetShooterRPM(SHOOTER_TARGET_RPM);
         } else {
@@ -324,7 +334,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
         if (spPress && !spindexerPressLast && canMove) {
             spindexerPositionIndex = (spindexerPositionIndex + 1) % 3;
-           spindexer.goToPositionTicks(getCurrentModeTargetTicks(spindexerPositionIndex));
+           spindexer.goToPosition(getCurrentModeTargetTicks(spindexerPositionIndex));
             spindexerIsMoving = true;
         }
         spindexerPressLast = spPress;

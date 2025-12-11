@@ -47,8 +47,20 @@ public class OldSpindexerSubsystem {
     private static final double MIN_POWER_THRESHOLD = 0.10;
 
     private boolean pidEnabled = false;
-    private boolean testMode = false; 
-    
+    private boolean testMode = false;
+
+    // ------------------- Intake / Outtake Mode -------------------
+
+    private boolean intakeMode = true;
+
+    public void setIntakeMode(boolean intake) {
+        this.intakeMode = intake;
+    }
+
+    public boolean getIntakeMode() {
+        return intakeMode;
+    }
+
     public enum SpindexerPosition {
         POSITION_1(POSITION_1_TICKS),
         POSITION_2(POSITION_2_TICKS),
@@ -143,7 +155,7 @@ public class OldSpindexerSubsystem {
         error = shortestError(targetPosition, currentPosition);
         double proportional = error * kP;
 
-        if (Math.abs(error) > POSITION_TOLERANCE) { integral += error; } 
+        if (Math.abs(error) > POSITION_TOLERANCE) { integral += error; }
         else { integral = 0; }
         integral = Range.clip(integral, -500, 500);
         double integralTerm = integral * kI;
@@ -159,7 +171,6 @@ public class OldSpindexerSubsystem {
 
         spindexerMotor.setPower(output);
 
-        // --- PID Telemetry only in test mode ---
         if (telemetry != null && testMode) {
             telemetry.addData("Spindexer Target", targetPosition);
             telemetry.addData("Spindexer Current", currentPosition);
@@ -167,12 +178,6 @@ public class OldSpindexerSubsystem {
             telemetry.addData("Spindexer Power", "%.2f", output);
             telemetry.addData("At Position", isAtPosition());
             telemetry.addData("Is Settling", isSettling);
-            telemetry.addData("Power Limit", currentPowerLimit);
-            telemetry.addData("--- PID Tuning Guide ---", "");
-            telemetry.addData("P Term", "%.3f (kP=%.3f)", proportional, kP);
-            telemetry.addData("I Term", "%.3f (kI=%.3f)", integralTerm, kI);
-            telemetry.addData("D Term", "%.3f (kD=%.3f)", derivative, kD);
-            telemetry.addData("Current Speed:", "%.0f%% (testing mode)", SPEED_MULTIPLIER * 100);
         }
     }
 
@@ -219,8 +224,59 @@ public class OldSpindexerSubsystem {
     private double shortestError(int target, int current) {
         int rawError = target - current;
         double revolutions = TICKS_PER_REVOLUTION;
-        if (rawError > revolutions / 2) { rawError -= revolutions; } 
+        if (rawError > revolutions / 2) { rawError -= revolutions; }
         else if (rawError < -revolutions / 2) { rawError += revolutions; }
         return rawError;
+    }
+
+    public void updateTelemetry() {
+        if (telemetry == null) return;
+
+        int current = getCurrentPosition();
+        double error = shortestError(targetPosition, current);
+
+        telemetry.addData("Spindexer Target", targetPosition);
+        telemetry.addData("Spindexer Current", current);
+        telemetry.addData("Spindexer Error", "%.1f", error);
+        telemetry.addData("At Position", isAtPosition());
+        telemetry.addData("Is Settling", isSettling);
+        telemetry.addData("Main Target Reached", mainTargetReached);
+    }
+
+
+    // ============================================================
+    //              *** REQUIRED METHODS ADDED BELOW ***
+    // ============================================================
+
+    /** Returns whether the PID controller is currently rotating */
+    public boolean isMoving() {
+        return pidEnabled && !mainTargetReached;
+    }
+
+    /** Public accessor for isSettling so AutoOuttakeController can read it */
+    public boolean isSettlingPublic() {
+        return isSettling;
+    }
+
+    /** Returns which index (0/1/2) the target tick position corresponds to */
+    public int getIndex() {
+        int t = targetPosition;
+
+        int pos1 = POSITION_1_TICKS;
+        int pos2 = POSITION_2_TICKS;
+        int pos3 = POSITION_3_TICKS;
+
+        double d1 = Math.abs(shortestError(pos1, t));
+        double d2 = Math.abs(shortestError(pos2, t));
+        double d3 = Math.abs(shortestError(pos3, t));
+
+        if (d1 <= d2 && d1 <= d3) return 0;
+        if (d2 <= d1 && d2 <= d3) return 1;
+        return 2;
+    }
+
+    // Make old call compatible: AutoOuttakeController expects isSettling()
+    public boolean isSettling() {
+        return isSettling;
     }
 }
