@@ -151,7 +151,7 @@ public class SensorColorTelemetry extends LinearOpMode {
         float val = hsv[2];
 
         // Basic confidence checks: require some saturation and value
-        if (sat < 0.15 || val < 0.08) {
+        if (sat < 0.15 || val < 0.002) {
             return null; // too dim/unsaturated to decide
         }
 

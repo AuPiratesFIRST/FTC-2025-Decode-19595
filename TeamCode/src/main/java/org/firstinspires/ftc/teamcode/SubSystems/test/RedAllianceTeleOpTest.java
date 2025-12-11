@@ -256,56 +256,72 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     }
 
 
-    private void handleAprilTagAlignment() {
+   private void handleAprilTagAlignment() {
+    if (gamepad2.y) {
+        aprilTag.updateRobotPositionFromAllianceGoals();
+        AprilTagDetection tag = aprilTag.getBestAllianceGoalDetection();
 
-        if (gamepad2.y) {
+        if (tag == null || tag.id != TARGET_TAG_ID) {
+            telemetry.addData("ALIGN", "Tag NOT found");
+            drive.drive(0, 0, 0); // Stop movement if tag is lost
+            return;
+        }
 
-            aprilTag.updateRobotPositionFromAllianceGoals();
-            AprilTagDetection tag = aprilTag.getBestAllianceGoalDetection();
-
-            if (tag == null || tag.id != TARGET_TAG_ID) {
-                telemetry.addData("ALIGN", "Tag NOT found");
-                return;
-            }
-            
-            // while aligning, force shooter to spin
-
-            if (!shooterManuallyControlled) {
+        // Force shooter to spin while aligning
+        if (!shooterManuallyControlled) {
             shooter.setTargetRPM(SHOOTER_TARGET_RPM);
-            }
+        }
 
-            double xOffset = tag.ftcPose.x;                         // +right, -left
-            double forwardError = tag.ftcPose.y - DESIRED_SHOOTING_DISTANCE;
-            double angleError = tag.ftcPose.yaw+DESIRED_SHOOTING_Angle;                   // +CCW, -CW
+        double xOffset = tag.ftcPose.x;
+        double forwardError = tag.ftcPose.y - DESIRED_SHOOTING_DISTANCE;
+        double angleError = tag.ftcPose.yaw + DESIRED_SHOOTING_Angle;
+        
+        // --- STAGE 1: ANGLE CORRECTION ---
+        if (Math.abs(angleError) > ANGLE_DEADBAND_DEG) {
+            
+            // Proportional (P) control for turning
+            double turnPower = KP_ROT * angleError;
+            
+            // Clamp turn power
+            turnPower = Range.clip(turnPower, -MAX_AUTO_POWER, MAX_AUTO_POWER);
 
+            // Drive ONLY the turn power
+            drive.drive(0, 0, turnPower);
+            
+            telemetry.addData("ALIGN", "STAGE 1: CORRECTING ANGLE...");
+            telemetry.addData("  Yaw Error", "%.2f°", angleError);
+
+        } 
+        // --- STAGE 2: POSITION CORRECTION ---
+        else {
+            
             double strafePower  = KP_STRAFE  * xOffset;
             double forwardPower = KP_FORWARD * forwardError;
-            double turnPower    = KP_ROT     * angleError;
+            double turnPower    = 0; // Angle is locked, so turnPower is ZERO
 
-            // deadbands
+            // Deadbands for position
             if (Math.abs(xOffset) < POSITION_DEADBAND) strafePower = 0;
             if (Math.abs(forwardError) < POSITION_DEADBAND) forwardPower = 0;
-            if (Math.abs(angleError) < ANGLE_DEADBAND_DEG) turnPower = 0;
-
-            // clamp
+            
+            // Clamp position powers
             strafePower  = Range.clip(strafePower,  -MAX_AUTO_POWER, MAX_AUTO_POWER);
             forwardPower = Range.clip(forwardPower, -MAX_AUTO_POWER, MAX_AUTO_POWER);
-            turnPower    = Range.clip(turnPower,    -MAX_AUTO_POWER, MAX_AUTO_POWER);
 
             drive.drive(
                     forwardPower,
                     strafePower,
-                    turnPower
+                    turnPower // This is 0
             );
-
-            boolean aligned = (strafePower == 0 && forwardPower == 0 && turnPower == 0);
-
-            telemetry.addData("ALIGN", aligned ? "LOCKED ON" : "ALIGNING...");
+            
+            boolean positionAligned = (strafePower == 0 && forwardPower == 0);
+            
+            telemetry.addData("ALIGN", positionAligned ? "LOCKED ON" : "STAGE 2: CORRECTING POSITION...");
             telemetry.addData("  X Offset", "%.2f in", xOffset);
             telemetry.addData("  Y Dist", "%.2f in (Target %.1f)", tag.ftcPose.y, DESIRED_SHOOTING_DISTANCE);
-            telemetry.addData("  Yaw", "%.2f°", angleError);
+            telemetry.addData("  Yaw (Locked)", "%.2f°", angleError); // show locked error
         }
     }
+}
 
     private void updateTelemetry() {
         telemetry.addData("=== RED ALLIANCE TELEOP TEST ===", "");
