@@ -2,6 +2,7 @@ package org.firstinspires.ftc.teamcode.SubSystems.test;
 
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.NormalizedColorSensor;
 import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.robotcore.external.JavaUtil;
@@ -12,6 +13,9 @@ import org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
+import org.firstinspires.ftc.teamcode.SubSystems.Vision.ObeliskMotifDetector;
+import org.firstinspires.ftc.teamcode.SubSystems.Scoring.AutoOuttakeController;
+import org.firstinspires.ftc.teamcode.SubSystems.Scoring.ArtifactColor;
 
 /**
  * RED ALLIANCE TEST VERSION
@@ -36,6 +40,11 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private ShooterSubsystem shooter;
     private OldSpindexerSubsystem spindexer;
     private AprilTagNavigator aprilTag;
+
+    // New: vision -> obelisk motif + auto outtake controller
+    private ObeliskMotifDetector obeliskDetector;
+    private NormalizedColorSensor colorSensor;
+    private AutoOuttakeController autoOuttake;
 
     private int spindexerPositionIndex = 0;
     private boolean intakeMode = true;
@@ -84,24 +93,82 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
     @Override
     public void runOpMode() {
+        // initialize subsystems
         drive = new DriveSubsystem(hardwareMap, telemetry);
         intake = new IntakeSubsystem(hardwareMap, telemetry);
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
 
+        // instantiate obelisk detector (uses aprilTag navigator)
+        obeliskDetector = new ObeliskMotifDetector(aprilTag, telemetry);
+
+        // color sensor (used by auto outtake)
+        try {
+            colorSensor = hardwareMap.get(NormalizedColorSensor.class, "sensor_color");
+        } catch (Exception e) {
+            colorSensor = null;
+            telemetry.addData("ColorSensor", "sensor_color not found");
+        }
+
         telemetry.addData("Status", "Initialized - RED ALLIANCE TEST");
         telemetry.update();
 
+        // --- INIT window: try to read the OBELISK motif before match start ---
+        telemetry.addData("Obelisk", "Scanning during init...");
+        telemetry.update();
+        long initStart = System.currentTimeMillis();
+        // give up to 3 seconds in init to read obelisk; short loop to remain responsive
+        while (!isStarted() && !isStopRequested() && System.currentTimeMillis() - initStart < 3000) {
+            // ask aprilTag subsystem to update its detections if it has such a method (optional)
+            // e.g. aprilTag.getAprilTagProcessor().processOnceIfNeeded(); // optional - only if your processor requires it
+            obeliskDetector.update();
+            telemetry.update();
+            sleep(50);
+        }
+
         waitForStart();
 
+        // After start: lock motif (use detected motif or fallback)
+        ArtifactColor[] motif = obeliskDetector.getMotif();
+        if (motif == null) {
+            // fallback: either choose a default motif or let driver decide (default here is GPG/GPG-like)
+            motif = new ArtifactColor[]{ArtifactColor.GREEN, ArtifactColor.PURPLE, ArtifactColor.GREEN};
+            telemetry.addData("Obelisk", "No motif read - using fallback %s", "GPG");
+        } else {
+            telemetry.addData("Obelisk", "Using motif: " + motif[0].getCharacter() + motif[1].getCharacter() + motif[2].getCharacter());
+        }
+        telemetry.update();
+
+        // instantiate auto-outtake controller if we have a color sensor
+        if (colorSensor != null) {
+            autoOuttake = new AutoOuttakeController(colorSensor, motif, spindexer, shooter, telemetry);
+            // tune defaults if needed:
+            autoOuttake.setScoreThreshold(6);
+            autoOuttake.setTargetShooterRPM(SHOOTER_TARGET_RPM);
+        } else {
+            autoOuttake = null;
+        }
+
         while (opModeIsActive()) {
+            // update components regularly
             handleDriving();
             handleIntake();
             handleShooter();
             shooter.updateVoltageCompensation();
+
+            // update AprilTag/obelisk if you want live re-scan (optional)
+            obeliskDetector.update();
+
+            // run auto outtake state machine (reads color sensor + sequences)
+            if (autoOuttake != null) autoOuttake.update();
+
+            // normal spindexer handling and update
             handleSpindexer();
+
+            // alignment assistance using goal tags
             handleAprilTagAlignment();
+
             updateTelemetry();
         }
 
@@ -215,6 +282,14 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
             if (spindexer.isAtPosition()) spindexerIsMoving = false;
         }
     }
+    
+    private int getCurrentModeTargetTicks(int index) {
+        if (intakeMode) {
+        return INTAKE_POSITIONS[index];
+    } else {
+        return OUTTAKE_POSITIONS[index];
+    }
+}
 
     private void handleAutomatedSpindexer() {
         spindexer.update();
@@ -249,7 +324,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
         if (spPress && !spindexerPressLast && canMove) {
             spindexerPositionIndex = (spindexerPositionIndex + 1) % 3;
-            spindexer.goToPosition(spindexerPositionIndex);
+           spindexer.goToPositionTicks(getCurrentModeTargetTicks(spindexerPositionIndex));
             spindexerIsMoving = true;
         }
         spindexerPressLast = spPress;

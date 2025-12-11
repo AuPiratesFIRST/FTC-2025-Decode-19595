@@ -54,7 +54,7 @@ public class OldSpindexerSubsystem {
     private static final double SPEED_MULTIPLIER = 1;
 
     // Minimum power threshold - motor won't move below this (prevents jitter)
-    private static final double MIN_POWER_THRESHOLD = 0.05;
+    private static final double MIN_POWER_THRESHOLD = 0.10;
 
     public enum SpindexerPosition {
         POSITION_1(POSITION_1_TICKS),
@@ -77,7 +77,7 @@ public class OldSpindexerSubsystem {
         spindexerMotor = hardwareMap.get(DcMotorEx.class, "Spindexer");
         configureMotor();
     }
-    private boolean pidEnabled = true;
+    private boolean pidEnabled = false;
 
     public void setPIDEnabled(boolean enabled) {
         pidEnabled = enabled;
@@ -101,6 +101,7 @@ public class OldSpindexerSubsystem {
      * @param position SpindexerPosition enum value
      */
     public void goToPosition(SpindexerPosition position) {
+        pidEnabled = true;
         targetPosition = normalizeTicks(position.getTicks());
         integral = 0;
         lastError = 0;
@@ -130,7 +131,13 @@ public class OldSpindexerSubsystem {
      * Update PID control - call this in your main loop.
      */
     public void update() {
-        int currentPosition = normalizeTicks(spindexerMotor.getCurrentPosition());
+        
+    if (!pidEnabled) {
+         spindexerMotor.setPower(0);
+         return;
+            }
+
+        int currentPosition = spindexerMotor.getCurrentPosition()
         double error = shortestError(targetPosition, currentPosition);
 
         // ------------------------------------------------------------
@@ -251,7 +258,7 @@ public class OldSpindexerSubsystem {
      * @return True if within tolerance
      */
     public boolean isAtPosition() {
-        int currentPosition = normalizeTicks(spindexerMotor.getCurrentPosition());
+        int currentPosition = spindexerMotor.getCurrentPosition();
         return Math.abs(shortestError(targetPosition, currentPosition)) <= POSITION_TOLERANCE;
     }
 
@@ -261,7 +268,7 @@ public class OldSpindexerSubsystem {
      * @return Current encoder position
      */
     public int getCurrentPosition() {
-        return normalizeTicks(spindexerMotor.getCurrentPosition());
+        return spindexerMotor.getCurrentPosition()
     }
 
     /**
