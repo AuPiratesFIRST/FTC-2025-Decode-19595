@@ -222,12 +222,20 @@ public class OldSpindexerSubsystem {
     }
 
     private double shortestError(int target, int current) {
-        int rawError = target - current;
-        double revolutions = TICKS_PER_REVOLUTION;
-        if (rawError > revolutions / 2) { rawError -= revolutions; }
-        else if (rawError < -revolutions / 2) { rawError += revolutions; }
-        return rawError;
+    double raw = target - current;
+
+    // FORCE always moving FORWARD from position 2 to 0
+    // when target == 0 AND current is near the high end of the rotation
+    if (target == 0 && current > (TICKS_PER_REVOLUTION * 0.5)) {
+        return (TICKS_PER_REVOLUTION - current); // forward to finish the circle
     }
+
+    // --- Normal shortest path logic ---
+    if (raw > TICKS_PER_REVOLUTION / 2)  raw -= TICKS_PER_REVOLUTION;
+    if (raw < -TICKS_PER_REVOLUTION / 2) raw += TICKS_PER_REVOLUTION;
+
+    return raw;
+}
 
     public void updateTelemetry() {
         if (telemetry == null) return;
