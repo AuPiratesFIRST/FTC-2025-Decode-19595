@@ -25,9 +25,27 @@ public class OldSpindexerSubsystem {
     private static final int POSITION_2_TICKS = (int) (TICKS_PER_REVOLUTION / 3.0);
     private static final int POSITION_3_TICKS = (int) (TICKS_PER_REVOLUTION * 2.0 / 3.0);
 
+    // Intake positions (evenly spaced 120° apart)
+    private static final int[] INTAKE_POSITIONS = {
+        POSITION_1_TICKS,  // 0
+        POSITION_2_TICKS,  // ~717
+        POSITION_3_TICKS   // ~1434
+    };
+
+    // Outtake positions (raw encoder values from physical measurement)
+    // These are the actual encoder ticks when physically moved to outtake positions
+    // Using raw values instead of normalized to avoid position calculation issues
+    private static final int[] OUTTAKE_POSITIONS = {
+        2060,  // Position 0 - raw encoder value
+        1885,  // Position 1 - raw encoder value
+        1716   // Position 2 - raw encoder value
+    };
+
     // Ball settling constants
+    // BALL_SETTLE_TICKS: Small counterclockwise movement to push ball past bar
+    // SETTLE_POWER: Power used during settling (increased for better torque to push past bar)
     private static final int BALL_SETTLE_TICKS = 34;
-    private static final double SETTLE_POWER = 0.4;
+    private static final double SETTLE_POWER = 0.6; // Increased from 0.4 for better torque
 
     private boolean isSettling = false;
     private int settlingTarget = 0;
@@ -200,9 +218,27 @@ public class OldSpindexerSubsystem {
 
     public double[] getPIDCoefficients() { return new double[] { kP, kI, kD }; }
 
+    /**
+     * Set manual power for direct motor control (used in manual mode).
+     * Motor runs in RUN_WITHOUT_ENCODER mode for maximum torque.
+     * 
+     * @param power Motor power (-1.0 to 1.0). Positive = forward, Negative = reverse
+     */
     public void setManualPower(double power) {
         spindexerMotor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        // No power scaling here - let TeleOp control the multiplier for manual mode
         spindexerMotor.setPower(Range.clip(power, -1.0, 1.0));
+    }
+
+    /**
+     * Get recommended manual power multiplier for TeleOp.
+     * Higher value = more torque but less control.
+     * For 312 RPM motor with high torque, 0.7-0.8 is recommended.
+     * 
+     * @return Recommended manual power multiplier (0.0 to 1.0)
+     */
+    public static double getRecommendedManualPowerMultiplier() {
+        return 0.75; // 75% power for good balance of torque and control
     }
 
     public void reset() {
@@ -286,5 +322,99 @@ public class OldSpindexerSubsystem {
     // Make old call compatible: AutoOuttakeController expects isSettling()
     public boolean isSettling() {
         return isSettling;
+    }
+
+    // ============================================================
+    //              *** INTAKE/OUTTAKE POSITION METHODS ***
+    // ============================================================
+
+    /**
+     * Get intake position ticks for a given index (0, 1, or 2)
+     * 
+     * @param index Position index (0, 1, or 2)
+     * @return Encoder ticks for the intake position, or -1 if invalid index
+     */
+    public static int getIntakePositionTicks(int index) {
+        if (index >= 0 && index < INTAKE_POSITIONS.length) {
+            return INTAKE_POSITIONS[index];
+        }
+        return -1;
+    }
+
+    /**
+     * Get outtake position ticks for a given index (0, 1, or 2)
+     * Returns raw encoder values (not normalized) for direct position control.
+     * 
+     * @param index Position index (0, 1, or 2)
+     * @return Raw encoder ticks for the outtake position, or -1 if invalid index
+     */
+    public static int getOuttakePositionTicks(int index) {
+        if (index >= 0 && index < OUTTAKE_POSITIONS.length) {
+            return OUTTAKE_POSITIONS[index];
+        }
+        return -1;
+    }
+
+    /**
+     * Get position ticks for current mode (intake or outtake) and index
+     * 
+     * @param index Position index (0, 1, or 2)
+     * @return Encoder ticks for the position based on current mode, or -1 if invalid index
+     */
+    public int getPositionTicksForCurrentMode(int index) {
+        if (intakeMode) {
+            return getIntakePositionTicks(index);
+        } else {
+            return getOuttakePositionTicks(index);
+        }
+    }
+
+    /**
+     * Go to position based on current mode (intake/outtake) and index
+     * This is the recommended method for TeleOp use as it automatically
+     * selects the correct position based on the current mode.
+     * 
+     * For intake positions: Uses normalized ticks (0-2150 range)
+     * For outtake positions: Uses raw encoder values (direct positioning)
+     * 
+     * @param index Position index (0, 1, or 2)
+     */
+    public void goToPositionForCurrentMode(int index) {
+        int ticks = getPositionTicksForCurrentMode(index);
+        if (ticks >= 0) {
+            pidEnabled = true;
+            // For outtake positions (raw values), use them directly without normalization
+            // For intake positions, normalize to ensure they're in valid range
+            if (intakeMode) {
+                targetPosition = normalizeTicks(ticks);
+            } else {
+                // Outtake positions are raw values - use directly but ensure they're valid
+                targetPosition = ticks;
+            }
+            integral = 0;
+            lastError = 0;
+            isSettling = false;
+            mainTargetReached = false;
+        } else if (telemetry != null && testMode) {
+            telemetry.addData("Spindexer Error", "Invalid position index: " + index);
+        }
+    }
+
+    /**
+     * Get all intake positions as an array
+     * 
+     * @return Array of intake position ticks
+     */
+    public static int[] getIntakePositions() {
+        return INTAKE_POSITIONS.clone();
+    }
+
+    /**
+     * Get all outtake positions as an array (raw encoder values)
+     * 
+     * @return Array of outtake position ticks (raw encoder values)
+     */
+    public static int[] getOuttakePositions() {
+        return OUTTAKE_POSITIONS.clone();
     }
 }

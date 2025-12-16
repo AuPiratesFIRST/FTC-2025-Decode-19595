@@ -73,23 +73,11 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private boolean aPressedLast = false;
     private boolean bPressedLast = false;
 
-    private static final double TICKS_PER_REVOLUTION = 2150.8;
-    private static final int POS_TICK_120 = (int) (TICKS_PER_REVOLUTION / 3.0);
-    private static final int POS_TICK_240 = (int) (TICKS_PER_REVOLUTION * 2.0 / 3.0);
-
-    private static final int[] INTAKE_POSITIONS = {0, POS_TICK_120, POS_TICK_240};
-
-    private static int normalizePosition(int rawPosition) {
-        int normalized = rawPosition % (int) TICKS_PER_REVOLUTION;
-        if (normalized < 0) normalized += (int) TICKS_PER_REVOLUTION;
-        return normalized;
-    }
-
-    private static final int[] OUTTAKE_POSITIONS = {
-            normalizePosition(-90),
-            normalizePosition(-265),
-            normalizePosition(-434)
-    };
+    // Positions are now managed by OldSpindexerSubsystem
+    // Use spindexer.getIntakePositionTicks(index) or
+    // spindexer.getOuttakePositionTicks(index)
+    // Or use spindexer.goToPositionForCurrentMode(index) for automatic mode-based
+    // positioning
 
     private static final int BALL_SETTLING_TICKS = 34;
 
@@ -106,22 +94,21 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
-        NormalizedColorSensor normColor =
-                hardwareMap.get(NormalizedColorSensor.class, "sensor_color");
-
-        ArtifactColor[] motif = new ArtifactColor[]{
+        // Color sensor and motif detection are optional; guard against missing hardware
+        ArtifactColor[] motif = new ArtifactColor[] {
                 ArtifactColor.PURPLE, ArtifactColor.GREEN, ArtifactColor.PURPLE
         };
-        colorSensorSubsystem = new ColorSensorSubsystem(normColor, null, telemetry, motif);
+        try {
+            NormalizedColorSensor normColor = hardwareMap.get(NormalizedColorSensor.class, "sensor_color");
+            colorSensorSubsystem = new ColorSensorSubsystem(normColor, null, telemetry, motif);
+            colorSensor = normColor;
+        } catch (Exception e) {
+            colorSensorSubsystem = null;
+            colorSensor = null;
+            telemetry.addData("ColorSensor", "sensor_color not found - auto outtake disabled");
+        }
 
         obeliskDetector = new ObeliskMotifDetector(aprilTag, telemetry);
-
-        try {
-            colorSensor = hardwareMap.get(NormalizedColorSensor.class, "sensor_color");
-        } catch (Exception e) {
-            colorSensor = null;
-            telemetry.addData("ColorSensor", "sensor_color not found");
-        }
 
         telemetry.addData("Status", "Initialized - RED ALLIANCE TEST");
         telemetry.update();
@@ -140,7 +127,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
         motif = obeliskDetector.getMotif();
         if (motif == null) {
-            motif = new ArtifactColor[]{ArtifactColor.GREEN, ArtifactColor.PURPLE, ArtifactColor.GREEN};
+            motif = new ArtifactColor[] { ArtifactColor.GREEN, ArtifactColor.PURPLE, ArtifactColor.GREEN };
             telemetry.addData("Obelisk", "No motif read - using fallback GPG");
         } else {
             telemetry.addData("Obelisk", "Using motif: " +
@@ -148,12 +135,12 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         }
         telemetry.update();
 
-        if (colorSensor != null) {
+        if (colorSensorSubsystem != null) {
             autoOuttake = new AutoOuttakeController(colorSensorSubsystem, motif, spindexer, shooter, telemetry);
             autoOuttake.setScoreThreshold(6);
             autoOuttake.setTargetShooterRPM(SHOOTER_TARGET_RPM);
         } else {
-            autoOuttake = null;
+            autoOuttake = null; // gracefully disable auto-outtake if sensor missing
         }
 
         while (opModeIsActive()) {
@@ -164,7 +151,11 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
             obeliskDetector.update();
 
-            if (autoOuttake != null) autoOuttake.update();
+            // Initialize camera controls when ready (non-blocking)
+            aprilTag.initializeCameraControls();
+
+            if (autoOuttake != null)
+                autoOuttake.update();
 
             handleSpindexer();
 
@@ -188,8 +179,10 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
         boolean a = gamepad1.a;
         boolean b = gamepad1.b;
-        if (a && !aPressedLast) driveSpeed = 1.0;
-        if (b && !bPressedLast) driveSpeed = 0.5;
+        if (a && !aPressedLast)
+            driveSpeed = 1.0;
+        if (b && !bPressedLast)
+            driveSpeed = 0.5;
         aPressedLast = a;
         bPressedLast = b;
 
@@ -207,9 +200,12 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     }
 
     private void handleIntake() {
-        if (gamepad2.left_trigger > 0.1) intake.setPower(1.0);
-        else if (gamepad2.left_bumper) intake.setPower(-1.0);
-        else intake.setPower(0);
+        if (gamepad2.left_trigger > 0.1)
+            intake.setPower(1.0);
+        else if (gamepad2.left_bumper)
+            intake.setPower(-1.0);
+        else
+            intake.setPower(0);
     }
 
     private void handleShooter() {
@@ -243,6 +239,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         if (dpadDown && !dpadDownLast && !manualControlMode) {
             intakeMode = !intakeMode;
             spindexerPositionIndex = 0;
+            spindexer.setIntakeMode(intakeMode);
         }
         dpadDownLast = dpadDown;
 
@@ -260,7 +257,10 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
         float manualPower = -gamepad2.right_stick_y;
         if (Math.abs(manualPower) > 0.1) {
-            spindexer.setManualPower(manualPower * 0.5);
+            // Use recommended multiplier for better torque (312 RPM motor needs more power)
+            // Increased from 0.5 to 0.75 for better torque to push past bar
+            double powerMultiplier = OldSpindexerSubsystem.getRecommendedManualPowerMultiplier();
+            spindexer.setManualPower(manualPower * powerMultiplier);
             spindexerIsMoving = false;
             return;
         } else {
@@ -283,16 +283,14 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
         if (spindexerIsMoving) {
             spindexer.update();
-            if (spindexer.isAtPosition()) spindexerIsMoving = false;
+            if (spindexer.isAtPosition())
+                spindexerIsMoving = false;
         }
     }
 
     private int getCurrentModeTargetTicks(int index) {
-        if (intakeMode) {
-            return INTAKE_POSITIONS[index];
-        } else {
-            return OUTTAKE_POSITIONS[index];
-        }
+        // Use subsystem method to get position based on current mode
+        return spindexer.getPositionTicksForCurrentMode(index);
     }
 
     private void handleAutomatedSpindexer() {
@@ -314,23 +312,25 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
             }
         }
 
-        if (ballSettling) ballSettling = false;
+        if (ballSettling)
+            ballSettling = false;
 
         if (shooterNeedsToSpinUp && !shooterManuallyControlled) {
-            if (shooter.isAtTargetRPM()) shooterNeedsToSpinUp = false;
+            if (shooter.isAtTargetRPM())
+                shooterNeedsToSpinUp = false;
         }
 
         boolean spPress = gamepad2.a;
-        boolean canMove =
-                !spindexerIsMoving &&
-                        !ballSettling &&
-                        (!shooterNeedsToSpinUp ||
-                                shooter.isAtTargetRPM() ||
-                                shooterManuallyControlled);
+        boolean canMove = !spindexerIsMoving &&
+                !ballSettling &&
+                (!shooterNeedsToSpinUp ||
+                        shooter.isAtTargetRPM() ||
+                        shooterManuallyControlled);
 
         if (spPress && !spindexerPressLast && canMove) {
             spindexerPositionIndex = (spindexerPositionIndex + 1) % 3;
-            spindexer.goToPosition(getCurrentModeTargetTicks(spindexerPositionIndex));
+            // Use subsystem method that automatically selects position based on mode
+            spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
             spindexerIsMoving = true;
         }
         spindexerPressLast = spPress;
@@ -351,40 +351,34 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
                 shooter.setTargetRPM(SHOOTER_TARGET_RPM);
             }
 
-            double xOffset = tag.ftcPose.x;
-            double forwardError = tag.ftcPose.y - DESIRED_SHOOTING_DISTANCE;
-            double angleError = tag.ftcPose.yaw + DESIRED_SHOOTING_Angle;
+            // Use improved alignment method from AprilTagNavigator
+            double[] corrections = aprilTag.calculateAlignmentCorrections(
+                    tag, DESIRED_SHOOTING_DISTANCE, DESIRED_SHOOTING_Angle,
+                    POSITION_DEADBAND, POSITION_DEADBAND, ANGLE_DEADBAND_DEG,
+                    KP_STRAFE, KP_FORWARD, KP_ROT, MAX_AUTO_POWER);
 
-            if (Math.abs(angleError) > ANGLE_DEADBAND_DEG) {
-                double turnPower = KP_ROT * angleError;
-                turnPower = Range.clip(turnPower, -MAX_AUTO_POWER, MAX_AUTO_POWER);
+            if (corrections == null) {
+                telemetry.addData("ALIGN", "Invalid tag");
+                drive.drive(0, 0, 0);
+                return;
+            }
 
-                drive.drive(0, 0, turnPower);
+            double strafePower = corrections[0];
+            double forwardPower = corrections[1];
+            double turnPower = corrections[2];
+            boolean aligned = (corrections[3] == 1.0);
 
+            drive.drive(forwardPower, strafePower, turnPower);
+
+            if (aligned) {
+                telemetry.addData("ALIGN", "LOCKED ON");
+            } else if (Math.abs(turnPower) > 0.01) {
                 telemetry.addData("ALIGN", "STAGE 1: CORRECTING ANGLE...");
-                telemetry.addData("  Yaw Error", "%.2f°", angleError);
-
+                telemetry.addData("  Yaw Error", "%.2f°", tag.ftcPose.yaw + DESIRED_SHOOTING_Angle);
             } else {
-                double strafePower = KP_STRAFE * xOffset;
-                double forwardPower = KP_FORWARD * forwardError;
-                double turnPower = 0;
-
-                if (Math.abs(xOffset) < POSITION_DEADBAND) strafePower = 0;
-                if (Math.abs(forwardError) < POSITION_DEADBAND) forwardPower = 0;
-
-                strafePower = Range.clip(strafePower, -MAX_AUTO_POWER, MAX_AUTO_POWER);
-                forwardPower = Range.clip(forwardPower, -MAX_AUTO_POWER, MAX_AUTO_POWER);
-
-                drive.drive(forwardPower, strafePower, turnPower);
-
-                boolean positionAligned = (strafePower == 0 && forwardPower == 0);
-
-                telemetry.addData("ALIGN",
-                        positionAligned ? "LOCKED ON" : "STAGE 2: CORRECTING POSITION...");
-                telemetry.addData("  X Offset", "%.2f in", xOffset);
-                telemetry.addData("  Y Dist",
-                        "%.2f in (Target %.1f)", tag.ftcPose.y, DESIRED_SHOOTING_DISTANCE);
-                telemetry.addData("  Yaw (Locked)", "%.2f°", angleError);
+                telemetry.addData("ALIGN", "STAGE 2: CORRECTING POSITION...");
+                telemetry.addData("  X Offset", "%.2f in", tag.ftcPose.x);
+                telemetry.addData("  Y Dist", "%.2f in (Target %.1f)", tag.ftcPose.y, DESIRED_SHOOTING_DISTANCE);
             }
         }
     }

@@ -13,6 +13,11 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Position;
 import org.firstinspires.ftc.robotcore.external.navigation.YawPitchRollAngles;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.ExposureControl;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.GainControl;
+import org.firstinspires.ftc.robotcore.util.Range;
+
+import java.util.concurrent.TimeUnit;
 
 import java.util.List;
 import java.util.Comparator;
@@ -42,7 +47,7 @@ public class AprilTagNavigator {
     // Based on FTC SDK recommendations and field testing
     private final double MIN_DETECTION_DISTANCE = 3.0; // Minimum distance for reliable detection (inches)
     private final double MAX_DETECTION_DISTANCE = 200; // Maximum distance for detection (increased for goal tags at
-                                                         // field edges)
+                                                       // field edges)
     // Note: decisionMargin is NOT a confidence score (0-1). It's a measure of how
     // close the tag
     // classification was between two families. Values can be > 1.0 or < 0.2
@@ -57,6 +62,11 @@ public class AprilTagNavigator {
     // center
     // Since camera is in middle: x=0, y=0, z=9.375 inches
     private static final double CAMERA_HEIGHT = 9.375; // 9 3/8 inches = 9.375 inches
+
+    // Camera control settings (optimized for DECODE field lighting)
+    private int cameraExposureMs = 6; // Low exposure to reduce motion blur (milliseconds)
+    private int cameraGain = 100; // Higher gain for low-light conditions (0-255)
+    private boolean cameraControlsSet = false;
 
     public AprilTagNavigator(DriveSubsystem driveSubsystem, HardwareMap hardwareMap, Telemetry telemetry) {
         this.driveSubsystem = driveSubsystem;
@@ -101,8 +111,90 @@ public class AprilTagNavigator {
         // Stream the VisionPortal feed to FTC Dashboard (VisionPortal implements
         // CameraStreamSource)
         // Reduced to 15 FPS to avoid DS lag on weaker hardware
-//        FtcDashboard.getInstance().startCameraStream(visionPortal, 15);
+        // FtcDashboard.getInstance().startCameraStream(visionPortal, 15);
 
+        // Set camera controls after vision portal is initialized
+        // This will be done asynchronously when camera is ready
+    }
+
+    /**
+     * Set camera exposure and gain for optimal AprilTag detection.
+     * Lower exposure reduces motion blur, higher gain compensates for low light.
+     * 
+     * @param exposureMs Exposure time in milliseconds (typically 1-10ms)
+     * @param gain       Camera gain (0-255, typically 50-200)
+     * @return True if controls were successfully set
+     */
+    public boolean setCameraControls(int exposureMs, int gain) {
+        if (visionPortal == null) {
+            return false;
+        }
+
+        // Wait for camera to be ready
+        if (visionPortal.getCameraState() != VisionPortal.CameraState.STREAMING) {
+            return false; // Camera not ready yet
+        }
+
+        try {
+            // Set exposure control
+            ExposureControl exposureControl = visionPortal.getCameraControl(ExposureControl.class);
+            if (exposureControl.getMode() != ExposureControl.Mode.Manual) {
+                exposureControl.setMode(ExposureControl.Mode.Manual);
+                try {
+                    Thread.sleep(50); // Allow mode change to take effect
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            exposureControl.setExposure((long) exposureMs, TimeUnit.MILLISECONDS);
+
+            // Set gain control
+            GainControl gainControl = visionPortal.getCameraControl(GainControl.class);
+            gainControl.setGain(Range.clip(gain, gainControl.getMinGain(), gainControl.getMaxGain()));
+
+            this.cameraExposureMs = exposureMs;
+            this.cameraGain = gain;
+            this.cameraControlsSet = true;
+
+            if (telemetry != null) {
+                telemetry.addData("Camera Controls", "Exposure: %d ms, Gain: %d", exposureMs, gain);
+            }
+
+            return true;
+        } catch (Exception e) {
+            if (telemetry != null) {
+                telemetry.addData("Camera Control Error", e.getMessage());
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Initialize camera controls with default optimized settings.
+     * Call this after vision portal is initialized and streaming.
+     */
+    public void initializeCameraControls() {
+        if (!cameraControlsSet && visionPortal != null) {
+            // Try to set controls, will retry if camera not ready
+            if (setCameraControls(cameraExposureMs, cameraGain)) {
+                cameraControlsSet = true;
+            }
+        }
+    }
+
+    /**
+     * Get current camera exposure setting
+     */
+    public int getCameraExposure() {
+        return cameraExposureMs;
+    }
+
+    /**
+     * Get current camera gain setting
+     */
+    public int getCameraGain() {
+        return cameraGain;
     }
 
     /**
@@ -602,6 +694,77 @@ public class AprilTagNavigator {
         }
 
         return true;
+    }
+
+    /**
+     * Calculate alignment corrections for shooting with reduced oscillation.
+     * Uses deadband and rate limiting to prevent jittery movements.
+     * 
+     * @param tag             AprilTag detection (must be alliance goal tag)
+     * @param desiredDistance Desired forward distance to tag (inches)
+     * @param desiredAngle    Desired angle offset (degrees, positive =
+     *                        counterclockwise)
+     * @param deadbandX       Deadband for X offset (inches)
+     * @param deadbandY       Deadband for Y distance (inches)
+     * @param deadbandAngle   Deadband for angle (degrees)
+     * @param kPStrafe        Proportional gain for strafe correction
+     * @param kPForward       Proportional gain for forward correction
+     * @param kPRot           Proportional gain for rotation correction
+     * @param maxPower        Maximum power output (0-1)
+     * @return Array [strafePower, forwardPower, turnPower, isAligned] or null if
+     *         tag not found
+     */
+    public double[] calculateAlignmentCorrections(AprilTagDetection tag,
+            double desiredDistance,
+            double desiredAngle,
+            double deadbandX,
+            double deadbandY,
+            double deadbandAngle,
+            double kPStrafe,
+            double kPForward,
+            double kPRot,
+            double maxPower) {
+        if (tag == null || (tag.id != 20 && tag.id != 24)) {
+            return null; // Not an alliance goal tag
+        }
+
+        double xOffset = tag.ftcPose.x; // Left/right offset
+        double yDistance = tag.ftcPose.y; // Forward distance
+        double yaw = tag.ftcPose.yaw; // Tag rotation relative to camera
+
+        double forwardError = yDistance - desiredDistance;
+        double angleError = yaw + desiredAngle; // Add desired angle offset
+
+        // Apply deadbands
+        double strafePower = 0;
+        double forwardPower = 0;
+        double turnPower = 0;
+
+        if (Math.abs(xOffset) > deadbandX) {
+            strafePower = kPStrafe * xOffset;
+        }
+
+        if (Math.abs(forwardError) > deadbandY) {
+            forwardPower = kPForward * forwardError;
+        }
+
+        // Prioritize angle correction first
+        if (Math.abs(angleError) > deadbandAngle) {
+            turnPower = kPRot * angleError;
+            // Don't move forward/strafe while correcting angle
+            strafePower = 0;
+            forwardPower = 0;
+        }
+
+        // Clip to max power
+        strafePower = Range.clip(strafePower, -maxPower, maxPower);
+        forwardPower = Range.clip(forwardPower, -maxPower, maxPower);
+        turnPower = Range.clip(turnPower, -maxPower, maxPower);
+
+        // Check if aligned (all corrections are zero)
+        boolean isAligned = (strafePower == 0 && forwardPower == 0 && turnPower == 0);
+
+        return new double[] { strafePower, forwardPower, turnPower, isAligned ? 1.0 : 0.0 };
     }
 
     /**
