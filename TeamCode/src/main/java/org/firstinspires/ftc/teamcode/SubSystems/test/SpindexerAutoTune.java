@@ -2,15 +2,14 @@ package org.firstinspires.ftc.teamcode.SubSystems.test;
 
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
-
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
+import com.bylazar.telemetry.PanelsTelemetry;
 
 @TeleOp(name = "Spindexer Auto-Tune", group = "Test")
 public class SpindexerAutoTune extends LinearOpMode {
 
     private OldSpindexerSubsystem spindexer;
-
-    // ===================== TUNING PHASE =====================
+    private PanelsTelemetry panelsTelemetry; // Add graphing telemetry
     private enum TuningPhase {
         IDLE,
         TUNING_P,
@@ -21,11 +20,10 @@ public class SpindexerAutoTune extends LinearOpMode {
 
     private TuningPhase currentPhase = TuningPhase.IDLE;
 
-    // ===================== PID VALUES =====================
+    // PID values and limits
     private double bestP = 0.01;
     private double bestD = 0.02;
     private double bestI = 0.0;
-
     private double currentP = 0.001;
     private double currentD = 0.0;
     private double currentI = 0.0;
@@ -42,7 +40,6 @@ public class SpindexerAutoTune extends LinearOpMode {
     private static final double I_MAX = 0.005;
     private static final double I_INCREMENT = 0.0001;
 
-    // ===================== METRICS =====================
     private static class PerformanceMetrics {
         double settlingTime;
         double maxOvershoot;
@@ -64,20 +61,16 @@ public class SpindexerAutoTune extends LinearOpMode {
     private final PerformanceMetrics metrics = new PerformanceMetrics();
     private final PerformanceMetrics bestMetrics = new PerformanceMetrics();
 
-    // ===================== TEST STATE =====================
     private boolean testInProgress = false;
     private boolean testJustFinished = false;
     private boolean spindexerIsMoving = false;
-
     private long motionStartTime = 0;
     private static final long MAX_TEST_TIME_MS = 8000;
     private static final int POSITION_TOLERANCE = 15;
-
     private double lastError = 0;
     private int errorSignChanges = 0;
     private double maxError = 0;
 
-    // =====================================================
     @Override
     public void runOpMode() throws InterruptedException {
 
@@ -85,6 +78,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         spindexer.reset();
         sleep(500);
 
+        panelsTelemetry =  PanelsTelemetry.telemetry;
         telemetry.addLine("Spindexer Auto PID Tuner");
         telemetry.addLine("A = Start");
         telemetry.addLine("B = Skip Phase");
@@ -131,8 +125,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         spindexer.setManualPower(0);
     }
 
-    // ===================== CONTROL =====================
-
+    // Start tuning process
     private void startTuning() {
         currentPhase = TuningPhase.TUNING_P;
         currentP = P_MIN;
@@ -142,6 +135,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         startTest();
     }
 
+    // Continue tuning based on current phase
     private void continueTuning() {
         if (currentPhase == TuningPhase.TUNING_P) {
             currentP += P_INCREMENT;
@@ -192,8 +186,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         currentPhase = TuningPhase.COMPLETE;
     }
 
-    // ===================== TEST =====================
-
+    // Run the test for the current PID coefficients
     private void startTest() {
         spindexer.reset();
         sleep(200);
@@ -212,6 +205,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         maxError = 0;
     }
 
+    // Run the test to evaluate the current PID coefficients
     private void runTest() {
         spindexer.update();
 
@@ -239,12 +233,12 @@ public class SpindexerAutoTune extends LinearOpMode {
 
             metrics.score =
                     metrics.steadyStateError * 100 +
-                    metrics.settlingTime * 0.1 +
-                    metrics.maxOvershoot * 20 +
-                    (metrics.oscillating ? 2000 : 0);
+                            metrics.settlingTime * 0.1 +
+                            metrics.maxOvershoot * 20 +
+                            (metrics.oscillating ? 2000 : 0);
 
             if (metrics.steadyStateError <= POSITION_TOLERANCE &&
-                metrics.score < bestMetrics.score) {
+                    metrics.score < bestMetrics.score) {
 
                 copyMetrics(metrics, bestMetrics);
                 bestP = currentP;
@@ -262,6 +256,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         }
     }
 
+    // Copy performance metrics
     private void copyMetrics(PerformanceMetrics src, PerformanceMetrics dst) {
         dst.settlingTime = src.settlingTime;
         dst.maxOvershoot = src.maxOvershoot;
@@ -272,9 +267,7 @@ public class SpindexerAutoTune extends LinearOpMode {
     }
 
     // ===================== TELEMETRY (GRAPHABLE) =====================
-
     private void updateTelemetry() {
-
         int currentPos = spindexer.getCurrentPosition();
         int targetPos = spindexer.getTargetPosition();
         double error = currentPos - targetPos;
@@ -296,6 +289,16 @@ public class SpindexerAutoTune extends LinearOpMode {
         telemetry.addData("Moving", spindexerIsMoving);
         telemetry.addData("Settling", spindexer.isSettling());
 
+        // Send data to the graph
+        panelsTelemetry.addData("Position", currentPos);
+        panelsTelemetry.addData("Target", targetPos);
+        panelsTelemetry.addData("Error", error);
+        panelsTelemetry.addData("P Coefficient", currentP);
+        panelsTelemetry.addData("I Coefficient", currentI);
+        panelsTelemetry.addData("D Coefficient", currentD);
+        panelsTelemetry.addData("Time", timeSinceMove);
+
+        panelsTelemetry.update(telemetry); // Update the graph with the current data
         telemetry.update();
     }
 }
