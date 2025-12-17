@@ -10,7 +10,7 @@ import org.firstinspires.ftc.robotcore.external.Telemetry;
 
 /**
  * Shooter subsystem for GoBILDA 6000 RPM motors with 3-inch wheels.
- * Now includes **battery voltage compensation** to maintain stable RPM.
+ * FTC-CORRECT flywheel velocity control with voltage-compensated kF.
  */
 public class ShooterSubsystem {
 
@@ -18,25 +18,25 @@ public class ShooterSubsystem {
     private final DcMotorEx rightShooterMotor;
     private final Telemetry telemetry;
 
-    // === NEW: Battery Voltage ===
+    // ================= VOLTAGE =================
     private final VoltageSensor batteryVoltageSensor;
-    private static final double NOMINAL_VOLTAGE = 13.0;   // Fully charged 3-cell
-    private double voltageCorrectionFactor = 1.0;
-    // ============================
+    private static final double NOMINAL_VOLTAGE = 13.0;
 
-    // Motor specifications
+    // ================= PIDF =================
+    private double kP = 35.0;
+    private double kI = 0.0;     // DO NOT USE for flywheel
+    private double kD = 12.0;
+    private double baseKf = 15.0;
+
+    // ================= MOTOR =================
     private static final double MOTOR_MAX_RPM = 6000.0;
-    private static final double TICKS_PER_REVOLUTION = 28.0;
-    private static final double WHEEL_DIAMETER = 3.0;
-    private static final double WHEEL_CIRCUMFERENCE = Math.PI * WHEEL_DIAMETER;
+    private static final double TICKS_PER_REV = 28.0;
 
-    // Velocity control
+    // ================= CONTROL =================
     private double targetRPM = 0.0;
     private double rpmTolerance = 100.0;
-    private boolean useVelocityControl = true;
     private boolean usePercentageTolerance = true;
 
-    // Power limits
     private double minPower = 0.3;
     private double maxPower = 1.0;
     private double defaultPower = 0.7;
@@ -48,11 +48,11 @@ public class ShooterSubsystem {
         MAX(1.0);
 
         private final double power;
-        ShooterSpeed(double power) {
-            this.power = power;
-        }
+        ShooterSpeed(double power) { this.power = power; }
         public double getPower() { return power; }
     }
+
+    // ===================================================
 
     public ShooterSubsystem(HardwareMap hardwareMap, Telemetry telemetry) {
         this.telemetry = telemetry;
@@ -60,12 +60,13 @@ public class ShooterSubsystem {
         leftShooterMotor = hardwareMap.get(DcMotorEx.class, "shooterL");
         rightShooterMotor = hardwareMap.get(DcMotorEx.class, "shooterR");
 
-
         batteryVoltageSensor = hardwareMap.voltageSensor.iterator().next();
 
-
         configureMotors();
+        applyVoltageCompensatedPIDF();
     }
+
+    // ===================================================
 
     private void configureMotors() {
         leftShooterMotor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
@@ -75,104 +76,65 @@ public class ShooterSubsystem {
         rightShooterMotor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
 
         rightShooterMotor.setDirection(DcMotor.Direction.REVERSE);
-
-        PIDFCoefficients velocityPIDF = new PIDFCoefficients(35.0, 0.15, 12.0, 15.0);
-        leftShooterMotor.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, velocityPIDF);
-        rightShooterMotor.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, velocityPIDF);
     }
 
+    // ===================================================
+    // 🔥 FTC-CORRECT VOLTAGE COMPENSATION (kF ONLY)
+    // ===================================================
 
-
-    // VOLTAGE COMPENSATION 
-
-
-    /** Update the voltage correction factor each loop */
-    public void updateVoltageCompensation() {
+    private void applyVoltageCompensatedPIDF() {
         double voltage = batteryVoltageSensor.getVoltage();
-        voltageCorrectionFactor = NOMINAL_VOLTAGE / voltage;
+        double compensatedKf = baseKf * (NOMINAL_VOLTAGE / voltage);
+
+        PIDFCoefficients pidf =
+                new PIDFCoefficients(kP, kI, kD, compensatedKf);
+
+        leftShooterMotor.setPIDFCoefficients(
+                DcMotor.RunMode.RUN_USING_ENCODER, pidf);
+        rightShooterMotor.setPIDFCoefficients(
+                DcMotor.RunMode.RUN_USING_ENCODER, pidf);
 
         if (telemetry != null) {
             telemetry.addData("Battery Voltage", "%.2f V", voltage);
-            telemetry.addData("Voltage Compensation", "%.2f×", voltageCorrectionFactor);
+            telemetry.addData("kF (base)", "%.2f", baseKf);
+            telemetry.addData("kF (comp)", "%.2f", compensatedKf);
         }
     }
 
-    /** Get raw battery voltage */
-    public double getCurrentVoltage() {
-        return batteryVoltageSensor.getVoltage();
+    // Call this periodically (or every loop)
+    public void updateVoltageCompensation() {
+        applyVoltageCompensatedPIDF();
     }
 
+    // ===================================================
+    // VELOCITY CONTROL
+    // ===================================================
 
-
-
-
-    /** Set power → automatically converted to RPM when velocity control is on */
     public void setPower(double power) {
         power = Range.clip(power, minPower, maxPower);
-
-        if (useVelocityControl) {
-            setTargetRPM(MOTOR_MAX_RPM * power);
-        } else {
-            leftShooterMotor.setPower(power);
-            rightShooterMotor.setPower(power);
-            this.targetRPM = MOTOR_MAX_RPM * power;
-        }
+        setTargetRPM(MOTOR_MAX_RPM * power);
     }
 
-
-
-
-    // setTargetRPM NOW USES VOLTAGE COMPENSATION 
-    
     public void setTargetRPM(double rpm) {
         targetRPM = Range.clip(rpm, 0.0, MOTOR_MAX_RPM);
 
-
-        double compensatedRPM = targetRPM * voltageCorrectionFactor;
-
-        double ticksPerSecond = (compensatedRPM * TICKS_PER_REVOLUTION) / 60.0;
+        double ticksPerSecond =
+                (targetRPM * TICKS_PER_REV) / 60.0;
 
         leftShooterMotor.setVelocity(ticksPerSecond);
         rightShooterMotor.setVelocity(ticksPerSecond);
 
         if (telemetry != null) {
             telemetry.addData("Target RPM", "%.0f", targetRPM);
-            telemetry.addData("Compensated RPM", "%.0f", compensatedRPM);
-        }
-    }
-    // 
-
-
-
-    public void setSpeed(ShooterSpeed speed) { setPower(speed.getPower()); }
-
-    public void start() { setPower(defaultPower); }
-
-    public boolean isAtTargetRPM() {
-        double currentRPM = getCurrentRPM();
-        double error = Math.abs(currentRPM - targetRPM);
-
-        if (usePercentageTolerance) {
-            return error <= targetRPM * 0.02;
-        } else {
-            return error <= rpmTolerance;
         }
     }
 
-    public double getRPMError() { return Math.abs(getCurrentRPM() - targetRPM); }
-
-    public double getRPMErrorPercentage() {
-        return targetRPM == 0 ? 100.0 : (getRPMError() / targetRPM) * 100.0;
+    public void setSpeed(ShooterSpeed speed) {
+        setPower(speed.getPower());
     }
 
-    public double getCurrentRPM() {
-        double leftRPM = leftShooterMotor.getVelocity() * 60.0 / TICKS_PER_REVOLUTION;
-        double rightRPM = rightShooterMotor.getVelocity() * 60.0 / TICKS_PER_REVOLUTION;
-        return (leftRPM + rightRPM) / 2.0;
-    }
-
-    public double getTargetRPM() {
-        return targetRPM;
+    public void start() {
+        setPower(defaultPower);
     }
 
     public void stop() {
@@ -181,16 +143,38 @@ public class ShooterSubsystem {
         targetRPM = 0;
     }
 
+    // ===================================================
+    // STATE
+    // ===================================================
+
+    public double getCurrentRPM() {
+        double leftRPM = leftShooterMotor.getVelocity() * 60.0 / TICKS_PER_REV;
+        double rightRPM = rightShooterMotor.getVelocity() * 60.0 / TICKS_PER_REV;
+        return (leftRPM + rightRPM) / 2.0;
+    }
+
+    public boolean isAtTargetRPM() {
+        double error = Math.abs(getCurrentRPM() - targetRPM);
+        return usePercentageTolerance
+                ? error <= targetRPM * 0.02
+                : error <= rpmTolerance;
+    }
+
+    public double getRPMError() {
+        return Math.abs(getCurrentRPM() - targetRPM);
+    }
+
+    // ===================================================
+    // TELEMETRY
+    // ===================================================
+
     public void updateTelemetry() {
         if (telemetry == null) return;
 
-        telemetry.addData("Shooter Status", isAtTargetRPM() ? "READY ✓" : "SPINNING...");
+        telemetry.addData("Shooter", isAtTargetRPM() ? "READY ✓" : "SPINNING");
         telemetry.addData("Current RPM", "%.0f", getCurrentRPM());
         telemetry.addData("Target RPM", "%.0f", targetRPM);
         telemetry.addData("RPM Error", "%.0f", getRPMError());
-        telemetry.addData("Error %", "%.1f%%", getRPMErrorPercentage());
-        telemetry.addData("Voltage", "%.2f V", getCurrentVoltage());
-
         telemetry.update();
     }
 }
