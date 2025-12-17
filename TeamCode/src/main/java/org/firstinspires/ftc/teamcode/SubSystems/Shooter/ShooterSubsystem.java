@@ -153,6 +153,10 @@ public class ShooterSubsystem {
         return (leftRPM + rightRPM) / 2.0;
     }
 
+    public double getTargetRPM() {
+        return targetRPM;
+    }
+
     public boolean isAtTargetRPM() {
         double error = Math.abs(getCurrentRPM() - targetRPM);
         return usePercentageTolerance

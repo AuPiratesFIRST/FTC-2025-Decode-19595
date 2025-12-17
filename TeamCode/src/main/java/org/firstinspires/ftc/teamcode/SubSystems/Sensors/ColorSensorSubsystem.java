@@ -140,6 +140,11 @@ public class ColorSensorSubsystem {
         return null;
     }
 
+    /** Get the current motif used for scoring */
+    public ArtifactColor[] getMotif() {
+        return patternScorer == null ? null : patternScorer.getMotif();
+    }
+
     /** Optionally enable or disable the sensor light */
     public void setLightEnabled(boolean enabled) {
         if (colorSensor instanceof SwitchableLight) {

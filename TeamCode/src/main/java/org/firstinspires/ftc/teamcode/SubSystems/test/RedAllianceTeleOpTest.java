@@ -60,6 +60,8 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
     // Shooting timing - track shot number for better timing
     private int shotNumber = 0;
+    private ElapsedTime actionTimer;
+
     private ElapsedTime shotTimer;
 
     // === BUTTON STATE TRACKING (DEBOUNCING) ===
