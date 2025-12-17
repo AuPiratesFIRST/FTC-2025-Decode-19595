@@ -81,7 +81,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
     private static final int BALL_SETTLING_TICKS = 34;
 
-    private static final double SHOOTER_TARGET_RPM = 5220.0;
+    private static final double SHOOTER_TARGET_RPM = 5210.0;
 
     private static final boolean IS_BLUE_ALLIANCE = false;
     private static final int TARGET_TAG_ID = 24;

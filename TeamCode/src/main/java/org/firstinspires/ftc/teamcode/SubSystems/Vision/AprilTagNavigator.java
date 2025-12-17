@@ -15,7 +15,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.Position;
 import org.firstinspires.ftc.robotcore.external.navigation.YawPitchRollAngles;
 import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.ExposureControl;
 import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.GainControl;
-import org.firstinspires.ftc.robotcore.util.Range;
+import com.qualcomm.robotcore.util.Range;
 
 import java.util.concurrent.TimeUnit;
 
@@ -64,8 +64,8 @@ public class AprilTagNavigator {
     private static final double CAMERA_HEIGHT = 9.375; // 9 3/8 inches = 9.375 inches
 
     // Camera control settings (optimized for DECODE field lighting)
-    private int cameraExposureMs = 6; // Low exposure to reduce motion blur (milliseconds)
-    private int cameraGain = 100; // Higher gain for low-light conditions (0-255)
+    private int cameraExposureMs = 14; // Low exposure to reduce motion blur (milliseconds)
+    private int cameraGain = 25; // Higher gain for low-light conditions (0-255)
     private boolean cameraControlsSet = false;
 
     public AprilTagNavigator(DriveSubsystem driveSubsystem, HardwareMap hardwareMap, Telemetry telemetry) {
@@ -101,6 +101,7 @@ public class AprilTagNavigator {
                 .setDrawCubeProjection(true) // Show 3D cube projection
                 .setTagFamily(AprilTagProcessor.TagFamily.TAG_36h11) // DECODE uses 36h11 tag family
                 .setCameraPose(cameraPosition, cameraOrientation) // Set camera position and orientation
+                .setLensIntrinsics(540.752,540.752,306.681, 240.842)
                 .build();
 
         visionPortal = new VisionPortal.Builder()
@@ -111,7 +112,7 @@ public class AprilTagNavigator {
         // Stream the VisionPortal feed to FTC Dashboard (VisionPortal implements
         // CameraStreamSource)
         // Reduced to 15 FPS to avoid DS lag on weaker hardware
-        // FtcDashboard.getInstance().startCameraStream(visionPortal, 15);
+         FtcDashboard.getInstance().startCameraStream(visionPortal, 15);
 
         // Set camera controls after vision portal is initialized
         // This will be done asynchronously when camera is ready
