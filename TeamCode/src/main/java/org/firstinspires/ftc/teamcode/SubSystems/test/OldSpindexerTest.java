@@ -1,14 +1,15 @@
 package org.firstinspires.ftc.teamcode.SubSystems.test;
 
+import com.bylazar.telemetry.PanelsTelemetry;
+import com.bylazar.telemetry.TelemetryManager;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
-
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 
 /**
  * Test OpMode for Spindexer subsystem.
- * Allows testing of position control and PID tuning.
- * 
+ * Allows testing of position control and PID tuning with enhanced telemetry for graphing.
+ *
  * Controls:
  * - A Button: Go to Position 1
  * - B Button: Go to Position 2
@@ -22,17 +23,22 @@ import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem
  * - Y Button: Reset encoder
  * - Left Stick Y: Manual control (overrides PID)
  */
-@TeleOp(name = "Spindexer Test", group = "Test")
+@TeleOp(name = "Spindexer Test with Graphs", group = "Test")
 public class OldSpindexerTest extends LinearOpMode {
 
     private OldSpindexerSubsystem spindexer;
     private boolean manualMode = false;
     private double[] pidCoefficients = new double[3];
 
+    // PanelsTelemetry manager
+    private TelemetryManager telemetryM;
+
     @Override
     public void runOpMode() throws InterruptedException {
-        telemetry.addData("Status", "Initializing Spindexer Test...");
-        telemetry.update();
+        telemetryM = PanelsTelemetry.INSTANCE.getTelemetry();
+
+        telemetryM.addLine("Status: Initializing Spindexer Test...");
+        telemetryM.update(telemetry);
 
         // Initialize spindexer subsystem
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
@@ -40,17 +46,16 @@ public class OldSpindexerTest extends LinearOpMode {
         // Get initial PID coefficients
         pidCoefficients = spindexer.getPIDCoefficients();
 
-        telemetry.addData("Status", "Ready");
-        telemetry.addLine();
-        telemetry.addLine("Controls:");
-        telemetry.addLine("A: Position 1");
-        telemetry.addLine("B: Position 2");
-        telemetry.addLine("X: Position 3");
-        telemetry.addLine("D-Pad: Adjust PID (Up/Down: P, Left/Right: I)");
-        telemetry.addLine("Bumpers: Adjust D gain");
-        telemetry.addLine("Y: Reset encoder");
-        telemetry.addLine("Left Stick Y: Manual control");
-        telemetry.update();
+        telemetryM.addLine("Status: Ready");
+        telemetryM.addLine("Controls:");
+        telemetryM.addLine("A: Position 1");
+        telemetryM.addLine("B: Position 2");
+        telemetryM.addLine("X: Position 3");
+        telemetryM.addLine("D-Pad: Adjust PID (Up/Down: P, Left/Right: I)");
+        telemetryM.addLine("Bumpers: Adjust D gain");
+        telemetryM.addLine("Y: Reset encoder");
+        telemetryM.addLine("Left Stick Y: Manual control");
+        telemetryM.update(telemetry);
 
         waitForStart();
 
@@ -126,18 +131,33 @@ public class OldSpindexerTest extends LinearOpMode {
                 spindexer.update();
             }
 
-            // Update telemetry
-            telemetry.addData("Status", manualMode ? "MANUAL MODE" : "PID MODE");
-            telemetry.addData("PID Coefficients", "P: %.3f, I: %.3f, D: %.3f",
-                    pidCoefficients[0], pidCoefficients[1], pidCoefficients[2]);
-            spindexer.updateTelemetry();
-            telemetry.update();
-
+            // Enhanced telemetry for graphing
+            updateTelemetry();
             sleep(20);
         }
 
         // Stop spindexer when OpMode ends
         spindexer.setManualPower(0);
     }
-}
 
+    /**
+     * Updates the telemetry for graphing PID values, errors, and target positions.
+     */
+    private void updateTelemetry() {
+        int currentPosition = spindexer.getCurrentPosition();
+        int targetPosition = spindexer.getTargetPosition();
+        double error = currentPosition - targetPosition;
+
+        // Panels telemetry graph data
+        telemetryM.addData("Mode", manualMode ? "MANUAL" : "PID");
+        telemetryM.addData("Graph_Current_Position", currentPosition);
+        telemetryM.addData("Graph_Target_Position", targetPosition);
+        telemetryM.addData("Graph_Error", error);
+
+        telemetryM.addData("Graph_PID_P", pidCoefficients[0]);
+        telemetryM.addData("Graph_PID_I", pidCoefficients[1]);
+        telemetryM.addData("Graph_PID_D", pidCoefficients[2]);
+
+        telemetryM.update(telemetry);
+    }
+}

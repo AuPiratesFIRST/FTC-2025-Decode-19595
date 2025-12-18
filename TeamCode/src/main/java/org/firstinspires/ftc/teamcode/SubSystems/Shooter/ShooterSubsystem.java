@@ -1,5 +1,6 @@
 package org.firstinspires.ftc.teamcode.SubSystems.Shooter;
 
+import com.bylazar.configurables.annotations.Configurable;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.HardwareMap;
@@ -12,6 +13,7 @@ import org.firstinspires.ftc.robotcore.external.Telemetry;
  * Shooter subsystem for GoBILDA 6000 RPM motors with 3-inch wheels.
  * FTC-CORRECT flywheel velocity control with voltage-compensated kF.
  */
+@Configurable
 public class ShooterSubsystem {
 
     private final DcMotorEx leftShooterMotor;
@@ -26,7 +28,7 @@ public class ShooterSubsystem {
     private double kP = 35.0;
     private double kI = 0.0;     // DO NOT USE for flywheel
     private double kD = 12.0;
-    private double baseKf = 15.5;
+    private double baseKf = 11.5;
 
     // ================= MOTOR =================
     private static final double MOTOR_MAX_RPM = 6000.0;

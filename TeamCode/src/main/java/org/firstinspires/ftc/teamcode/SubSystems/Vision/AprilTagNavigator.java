@@ -65,8 +65,8 @@ public class AprilTagNavigator {
     private static final double CAMERA_HEIGHT = 9.375; // 9 3/8 inches = 9.375 inches
 
     // Camera control settings (optimized for DECODE field lighting)
-    private int cameraExposureMs = 14; // Low exposure to reduce motion blur (milliseconds)
-    private int cameraGain = 25; // Higher gain for low-light conditions (0-255)
+    private int cameraExposureMs = 11; // Low exposure to reduce motion blur (milliseconds)
+    private int cameraGain = 20; // Higher gain for low-light conditions (0-255)
     private boolean cameraControlsSet = false;
 
     public AprilTagNavigator(DriveSubsystem driveSubsystem, HardwareMap hardwareMap, Telemetry telemetry) {

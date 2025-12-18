@@ -1,5 +1,6 @@
 package org.firstinspires.ftc.teamcode.SubSystems.Spindexer;
 
+import com.bylazar.configurables.annotations.Configurable;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.HardwareMap;
@@ -11,6 +12,7 @@ import org.firstinspires.ftc.teamcode.SubSystems.Scoring.ArtifactColor;
  * Vertical spindexer subsystem with PID control for precise position control,
  * now including a two-step sequence for ball settling after rotation.
  */
+@Configurable
 public class OldSpindexerSubsystem {
 
     private final DcMotorEx spindexerMotor;

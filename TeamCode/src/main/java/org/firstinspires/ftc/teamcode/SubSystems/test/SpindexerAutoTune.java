@@ -115,7 +115,6 @@ public class SpindexerAutoTune extends LinearOpMode {
         telemetryM = PanelsTelemetry.INSTANCE.getTelemetry();
         
         // Step 1: Manual physical alignment
-        telemetryM.clear();
         telemetryM.addLine("=== MANUAL ALIGNMENT ===");
         telemetryM.addLine("Please move spindexer to physical zero (0) position.");
         telemetryM.addLine("This should be the starting position (position 0).");
@@ -135,7 +134,6 @@ public class SpindexerAutoTune extends LinearOpMode {
         }
         
         // Step 2: Software encoder reset (aligns software zero with physical zero)
-        telemetryM.clear();
         telemetryM.addLine("Resetting encoder to software zero...");
         telemetryM.update(telemetry);
         
@@ -145,7 +143,6 @@ public class SpindexerAutoTune extends LinearOpMode {
         // Step 3: Verify encoder is near zero (optional safety check)
         int currentPos = spindexer.getCurrentPosition();
         if (Math.abs(currentPos) > 5) {  // Allow small tolerance
-            telemetryM.clear();
             telemetryM.addLine("⚠️ WARNING: Encoder not zeroed correctly!");
             telemetryM.addData("Encoder reads", currentPos);
             telemetryM.addLine("Expected: ~0");
@@ -173,7 +170,6 @@ public class SpindexerAutoTune extends LinearOpMode {
         }
         
         // Step 4: Ready to start tuning
-        telemetryM.clear();
         telemetryM.addLine("Spindexer Auto PID Tuner");
         telemetryM.addLine("Encoder zeroed: " + spindexer.getCurrentPosition());
         telemetryM.addLine("");
