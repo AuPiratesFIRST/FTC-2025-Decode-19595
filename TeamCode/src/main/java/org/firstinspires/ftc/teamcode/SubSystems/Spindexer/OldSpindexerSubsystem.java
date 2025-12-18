@@ -56,9 +56,9 @@ public class OldSpindexerSubsystem {
     private boolean mainTargetReached = false;
 
     // PID coefficients
-    private double kP = 0.0430;
-    private double kI = 0.0009;
-    private double kD = 0.02;
+    private double kP = 0.012000;
+    private double kI = 0.001500;
+    private double kD = 0.01800;
 
     private double integral = 0;
     private double lastError = 0;

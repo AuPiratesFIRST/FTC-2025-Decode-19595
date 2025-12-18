@@ -73,7 +73,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private boolean aPressedLast = false;
     private boolean bPressedLast = false;
 
-    private static final double SHOOTER_TARGET_RPM = 5210.0;
+    private static final double SHOOTER_TARGET_RPM = 5220.0;
     private static final int TARGET_TAG_ID = 24;
 
     @Override
