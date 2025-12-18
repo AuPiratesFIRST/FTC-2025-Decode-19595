@@ -159,6 +159,11 @@ public class RedAllianceEncoderAuto extends OpMode {
         spindexer.update();
         shooter.updateVoltageCompensation();
         aprilTag.updateRobotPositionFromTriangulation();
+        
+        // CRITICAL SAFETY: Stop shooter when spindexer is moving
+        if (spindexer.isMoving() || !spindexer.isAtPosition()) {
+            shooter.stop();
+        }
 
         // Check if we're running out of time
         if (opmodeTimer.milliseconds() > MAX_AUTONOMOUS_TIME_MS) {
@@ -437,6 +442,8 @@ public class RedAllianceEncoderAuto extends OpMode {
 
         if (waitingForFire) {
             if (actionTimer.milliseconds() > FIRING_DELAY_MS) {
+                // CRITICAL: Stop shooter before moving spindexer
+                shooter.stop();
                 // Move spindexer to next position
                 spindexerPositionIndex = (spindexerPositionIndex + 1) % 3;
                 spindexer.goToPosition(spindexerPositionIndex);
@@ -449,9 +456,17 @@ public class RedAllianceEncoderAuto extends OpMode {
         }
 
         if (waitingForSpindexer) {
+            // CRITICAL: Ensure shooter stays stopped while spindexer is moving
+            if (spindexer.isMoving() || !spindexer.isAtPosition()) {
+                shooter.stop(); // Keep shooter stopped during movement
+            }
+            
             if (spindexer.isAtPosition() || actionTimer.milliseconds() > SPINDEXER_MOVE_TIME_MS) {
                 waitingForSpindexer = false;
-                // Don't stop shooter yet - keep it running for next shot
+                // Restart shooter for next shot
+                shooter.setTargetRPM(SHOOTER_TARGET_RPM);
+                waitingForShooter = true;
+                actionTimer.reset();
                 return true; // This shot is complete
             }
             return false;

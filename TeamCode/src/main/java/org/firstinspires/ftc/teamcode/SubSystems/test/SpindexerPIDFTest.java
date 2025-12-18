@@ -30,6 +30,12 @@ public class SpindexerPIDFTest extends LinearOpMode {
         telemetry.addLine("Controls:");
         telemetry.addLine("  A = Toggle Intake / Outtake Mode");
         telemetry.addLine("  B = Advance to Next Pocket");
+        telemetry.addLine("");
+        telemetry.addLine("NOTE: Balls not required for mechanism testing.");
+        telemetry.addLine("If testing with balls:");
+        telemetry.addLine("  - Use Intake Mode (A) to feed balls");
+        telemetry.addLine("  - Keep intake running to prevent balls");
+        telemetry.addLine("    from falling out during testing");
         telemetry.update();
 
         waitForStart();

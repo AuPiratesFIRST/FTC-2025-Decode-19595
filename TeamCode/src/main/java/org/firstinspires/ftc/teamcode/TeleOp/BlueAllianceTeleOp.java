@@ -15,9 +15,12 @@ import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
  * Blue Alliance TeleOp with AprilTag alignment and automated scoring sequence.
  * 
  * Gamepad 1 (Driver):
- * - Left Stick: Drive forward/backward and strafe
+ * - Left Stick Y: Forward/backward
+ * - Left Stick X: Strafe left/right
  * - Right Stick X: Turn
+ * - Right Stick Y: Diagonal forward/backward (adds to forward movement)
  * - A/B: Drive speed toggle (1.0 / 0.5)
+ * - D-Pad Up: Toggle inverse direction (for when controller is at back of robot)
  * 
  * Gamepad 2 (Operator):
  * - Left Trigger: Intake forward
@@ -63,6 +66,10 @@ public class BlueAllianceTeleOp extends LinearOpMode {
     private double driveSpeed = 1.0;
     private boolean aPressedLast = false;
     private boolean bPressedLast = false;
+    
+    // Inverse direction toggle (for when controller is at back of robot)
+    private boolean inverseDirection = false;
+    private boolean dpadUpLast = false;
 
     // Spindexer positions (inspired by Decode20252026 but using subsystem)
     private static final double TICKS_PER_REVOLUTION = 2150.8;
@@ -132,9 +139,31 @@ public class BlueAllianceTeleOp extends LinearOpMode {
     }
 
     private void handleDriving() {
+        // Inverse direction toggle (D-Pad Up on Gamepad 1)
+        boolean dpadUp = gamepad1.dpad_up;
+        if (dpadUp && !dpadUpLast) {
+            inverseDirection = !inverseDirection;
+        }
+        dpadUpLast = dpadUp;
+        
+        // Get standard controls from left stick
         float forward = gamepad1.left_stick_y;
         float strafe = -gamepad1.left_stick_x;
         float turn = -gamepad1.right_stick_x;
+        
+        // Add diagonal forward/backward movement from right stick Y axis
+        // Right stick Y = diagonal forward/backward (adds to base forward movement)
+        float diagonalForward = gamepad1.right_stick_y;
+        
+        // Combine normal movement with diagonal forward/backward
+        forward += diagonalForward;
+        
+        // Apply inverse direction if enabled
+        if (inverseDirection) {
+            forward = -forward;
+            strafe = -strafe;
+            turn = -turn;
+        }
         
         double denominator = JavaUtil.maxOfList(JavaUtil.createListWith(0.5, 0.5 + Math.abs(turn)));
 
@@ -150,6 +179,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
         // Alignment will override turn when Y button is held
         if (!gamepad2.y) {
             // Normal driving - apply drive with speed multiplier
+            // Diagonal movement is automatically handled by mecanum kinematics
             drive.drive((forward / denominator) * driveSpeed, 
                        (strafe / denominator) * driveSpeed, 
                        (turn / denominator) * driveSpeed);
@@ -351,6 +381,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
     private void updateTelemetry() {
         telemetry.addData("=== BLUE ALLIANCE TELEOP ===", "");
         telemetry.addData("Drive Speed", driveSpeed);
+        telemetry.addData("Inverse Direction", inverseDirection ? "ON (D-Pad Up)" : "OFF");
         telemetry.addData("Spindexer Control", manualControlMode ? "MANUAL" : "AUTOMATED");
         telemetry.addData("Spindexer Mode", intakeMode ? "INTAKE" : "OUTTAKE");
         telemetry.addData("Spindexer Position", spindexerPositionIndex);

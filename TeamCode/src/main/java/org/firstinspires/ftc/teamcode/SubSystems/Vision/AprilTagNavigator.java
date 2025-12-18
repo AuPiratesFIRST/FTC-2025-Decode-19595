@@ -45,7 +45,8 @@ public class AprilTagNavigator {
 
     // Detection parameters optimized for DECODE field
     // Based on FTC SDK recommendations and field testing
-    private final double MIN_DETECTION_DISTANCE = 3.0; // Minimum distance for reliable detection (inches)
+    // Reduced minimum distance for redundancy - allows detection closer to tags
+    private final double MIN_DETECTION_DISTANCE = 1.0; // Minimum distance for reliable detection (inches) - reduced from 3.0 for redundancy
     private final double MAX_DETECTION_DISTANCE = 200; // Maximum distance for detection (increased for goal tags at
                                                        // field edges)
     // Note: decisionMargin is NOT a confidence score (0-1). It's a measure of how

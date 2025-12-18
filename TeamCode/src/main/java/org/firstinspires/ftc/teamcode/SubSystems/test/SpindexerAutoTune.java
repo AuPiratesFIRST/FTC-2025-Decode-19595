@@ -3,13 +3,13 @@ package org.firstinspires.ftc.teamcode.SubSystems.test;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
-import com.bylazar.telemetry.PanelsTelemetry;
+import org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem;
 
 @TeleOp(name = "Spindexer Auto-Tune", group = "Test")
 public class SpindexerAutoTune extends LinearOpMode {
 
     private OldSpindexerSubsystem spindexer;
-    private PanelsTelemetry panelsTelemetry; // Add graphing telemetry
+    private IntakeSubsystem intake;
     private enum TuningPhase {
         IDLE,
         TUNING_P,
@@ -75,10 +75,9 @@ public class SpindexerAutoTune extends LinearOpMode {
     public void runOpMode() throws InterruptedException {
 
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
+        intake = new IntakeSubsystem(hardwareMap, telemetry);
         spindexer.reset();
         sleep(500);
-
-        panelsTelemetry =  PanelsTelemetry.telemetry;
         telemetry.addLine("Spindexer Auto PID Tuner");
         telemetry.addLine("A = Start");
         telemetry.addLine("B = Skip Phase");
@@ -123,6 +122,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         }
 
         spindexer.setManualPower(0);
+        intake.stop();
     }
 
     // Start tuning process
@@ -179,6 +179,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         currentPhase = TuningPhase.IDLE;
         testInProgress = false;
         spindexer.reset();
+        intake.stop();
     }
 
     private void finishTuning() {
@@ -190,6 +191,9 @@ public class SpindexerAutoTune extends LinearOpMode {
     private void startTest() {
         spindexer.reset();
         sleep(200);
+
+        // Start intake at 0.9 power to prevent balls from getting stuck
+        intake.setPower(0.9);
 
         spindexer.setPIDCoefficients(currentP, currentI, currentD);
         spindexer.goToPosition(OldSpindexerSubsystem.SpindexerPosition.POSITION_2);
@@ -289,16 +293,16 @@ public class SpindexerAutoTune extends LinearOpMode {
         telemetry.addData("Moving", spindexerIsMoving);
         telemetry.addData("Settling", spindexer.isSettling());
 
-        // Send data to the graph
-        panelsTelemetry.addData("Position", currentPos);
-        panelsTelemetry.addData("Target", targetPos);
-        panelsTelemetry.addData("Error", error);
-        panelsTelemetry.addData("P Coefficient", currentP);
-        panelsTelemetry.addData("I Coefficient", currentI);
-        panelsTelemetry.addData("D Coefficient", currentD);
-        panelsTelemetry.addData("Time", timeSinceMove);
-
-        panelsTelemetry.update(telemetry); // Update the graph with the current data
+        // Graph data - Panels Graph plugin reads from telemetry in format: <NAME>:<NUMBER VALUE>
+        // Using simple names for graph (graph plugin automatically detects numeric values)
+        telemetry.addData("Position", currentPos);
+        telemetry.addData("Target", targetPos);
+        telemetry.addData("Error", error);
+        telemetry.addData("P", currentP);
+        telemetry.addData("I", currentI);
+        telemetry.addData("D", currentD);
+        telemetry.addData("Time", timeSinceMove);
+        
         telemetry.update();
     }
 }

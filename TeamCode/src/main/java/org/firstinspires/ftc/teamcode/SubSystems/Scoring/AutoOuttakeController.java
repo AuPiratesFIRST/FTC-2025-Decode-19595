@@ -99,6 +99,11 @@ public class AutoOuttakeController {
                 break;
 
             case OUTTAKING:
+                // CRITICAL SAFETY: Stop shooter when spindexer is moving
+                if (spindexer.isMoving() || !spindexer.isAtPosition()) {
+                    shooter.stop();
+                }
+                
                 if (outtakePerformed >= outtakeCount) {
                     state = State.COOLDOWN;
                     stateStartTime = System.currentTimeMillis();
@@ -108,14 +113,22 @@ public class AutoOuttakeController {
                 }
 
                 // Wait for spindexer to reach position before moving to next
-                if (!spindexer.isMoving() && !spindexer.isSettling()) {
-                    // Check if we've waited long enough after reaching position (for ball to fire)
+                // CRITICAL: Shooter must be stopped while spindexer is moving
+                if (spindexer.isMoving() || !spindexer.isAtPosition()) {
+                    shooter.stop(); // Keep shooter stopped during movement
+                } else if (!spindexer.isSettling() && spindexer.isAtPosition()) {
+                    // Spindexer is at position - check if we've waited long enough for ball to fire
                     long timeSinceLastMove = System.currentTimeMillis() - stateStartTime;
-                    if (timeSinceLastMove > 300) { // 300ms delay after position reached
-                        // Move to next position
+                    if (timeSinceLastMove > 400) { // 400ms delay after position reached for ball to fire
+                        // Ball should have fired - move to next position
+                        // Stop shooter before moving spindexer
+                        shooter.stop();
                         int nextIndex = (spindexer.getIndex() + 1) % 3;
                         spindexer.goToPositionForCurrentMode(nextIndex);
                         stateStartTime = System.currentTimeMillis(); // Reset timer for next position
+                    } else if (timeSinceLastMove > 200 && shooter.getTargetRPM() == 0) {
+                        // Restart shooter after 200ms delay (spindexer has settled)
+                        shooter.setTargetRPM(targetShooterRPM);
                     }
                 }
 
@@ -144,6 +157,9 @@ public class AutoOuttakeController {
     public void setScoreThreshold(int t) { scoreThreshold = t; }
     public void setTargetShooterRPM(double rpm) { targetShooterRPM = rpm; }
     public void setAutoEnabled(boolean enabled) { autoEnabled = enabled; }
+    
+    // State accessor
+    public State getState() { return state; }
 
     /** Replace motif at runtime */
     public void setMotif(ArtifactColor[] motif) {

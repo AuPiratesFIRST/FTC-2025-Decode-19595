@@ -170,6 +170,9 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
             handleSpindexer();
 
+            // CRITICAL SAFETY: Stop shooter when spindexer is moving
+            enforceShooterSpindexerSafety();
+
             handleAprilTagAlignment();
 
             updateTelemetry();
@@ -182,9 +185,17 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     }
 
     private void handleDriving() {
+        // Get standard controls from left stick
         float forward = gamepad1.left_stick_y;
         float strafe = -gamepad1.left_stick_x;
         float turn = -gamepad1.right_stick_x;
+        
+        // Add diagonal forward/backward movement from right stick Y axis
+        // Right stick Y = diagonal forward/backward (adds to base forward movement)
+        float diagonalForward = gamepad1.right_stick_y;
+        
+        // Combine normal movement with diagonal forward/backward
+        forward += diagonalForward;
 
         double denominator = JavaUtil.maxOfList(JavaUtil.createListWith(0.5, 0.5 + Math.abs(turn)));
 
@@ -395,6 +406,20 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
             shotTimer.reset();
         }
         spindexerPressLast = spPress;
+    }
+
+    /**
+     * CRITICAL SAFETY: Stop shooter when spindexer is moving
+     * This prevents balls from popping off during spindexer movement
+     */
+    private void enforceShooterSpindexerSafety() {
+        if (spindexer.isMoving() || !spindexer.isAtPosition()) {
+            // Spindexer is moving - stop shooter immediately
+            if (shooter.getTargetRPM() > 0 && !shooterManuallyControlled) {
+                shooter.stop();
+                shooterNeedsToSpinUp = true; // Will need to spin up again after movement
+            }
+        }
     }
 
     private void handleAprilTagAlignment() {
