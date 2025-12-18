@@ -1,5 +1,7 @@
 package org.firstinspires.ftc.teamcode.SubSystems.test;
 
+import com.bylazar.telemetry.PanelsTelemetry;
+import com.bylazar.telemetry.TelemetryManager;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
@@ -22,6 +24,7 @@ public class SpindexerAutoTune extends LinearOpMode {
 
     private OldSpindexerSubsystem spindexer;
     private IntakeSubsystem intake;
+    private TelemetryManager telemetryM;
     
     private enum TuningPhase {
         IDLE,
@@ -109,6 +112,7 @@ public class SpindexerAutoTune extends LinearOpMode {
 
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         intake = new IntakeSubsystem(hardwareMap, telemetry);
+        telemetryM = PanelsTelemetry.INSTANCE.getTelemetry();
         
         // Step 1: Manual physical alignment
         telemetry.clear();
@@ -588,55 +592,56 @@ public class SpindexerAutoTune extends LinearOpMode {
                 : 0;
 
         // ===== GRAPH SIGNALS =====
-        telemetry.addData("Graph_Position", currentPos);
-        telemetry.addData("Graph_Target", targetPos);
-        telemetry.addData("Graph_Error", error);
-        telemetry.addData("Graph_Time_ms", timeSinceMove);
+        // Graph plugin automatically detects numeric telemetry data
+        telemetryM.addData("Graph_Position", currentPos);
+        telemetryM.addData("Graph_Target", targetPos);
+        telemetryM.addData("Graph_Error", error);
+        telemetryM.addData("Graph_Time_ms", timeSinceMove);
 
-        telemetry.addData("Graph_P", currentP);
-        telemetry.addData("Graph_I", currentI);
-        telemetry.addData("Graph_D", currentD);
+        telemetryM.addData("Graph_P", currentP);
+        telemetryM.addData("Graph_I", currentI);
+        telemetryM.addData("Graph_D", currentD);
 
-        telemetry.addData("Phase", currentPhase);
+        telemetryM.addData("Phase", currentPhase);
         
         // Ball loading reminder (critical for accurate tuning)
         if (currentPhase == TuningPhase.LOADING_BALLS) {
-            telemetry.addLine("");
-            telemetry.addLine("*** LOAD 3 BALLS NOW ***");
-            telemetry.addLine("Press A when ready to continue");
-            telemetry.addLine("");
+            telemetryM.addLine("");
+            telemetryM.addLine("*** LOAD 3 BALLS NOW ***");
+            telemetryM.addLine("Press A when ready to continue");
+            telemetryM.addLine("");
         } else if (currentPhase == TuningPhase.TUNING_P) {
-            telemetry.addLine("");
-            telemetry.addLine("*** REMOVE ALL BALLS ***");
-            telemetry.addLine("P tuning requires empty spindexer");
-            telemetry.addLine("");
+            telemetryM.addLine("");
+            telemetryM.addLine("*** REMOVE ALL BALLS ***");
+            telemetryM.addLine("P tuning requires empty spindexer");
+            telemetryM.addLine("");
         } else if (currentPhase == TuningPhase.TUNING_D || currentPhase == TuningPhase.TUNING_I) {
-            telemetry.addLine("");
-            telemetry.addLine("*** 3 BALLS LOADED ***");
-            telemetry.addLine("D/I tuning with load");
-            telemetry.addLine("");
+            telemetryM.addLine("");
+            telemetryM.addLine("*** 3 BALLS LOADED ***");
+            telemetryM.addLine("D/I tuning with load");
+            telemetryM.addLine("");
         }
         
-        telemetry.addData("Moving", spindexerIsMoving);
-        telemetry.addData("Reached Target", hasReachedTarget);
-        telemetry.addData("Settling", spindexer.isSettling());
-        telemetry.addData("Position Index", currentPositionIndex);
-        telemetry.addData("Positions Completed", "%d/%d", positionsCompleted, TOTAL_POSITIONS_TO_TEST);
-        telemetry.addData("Mode", intakeMode ? "INTAKE" : "OUTTAKE");
+        telemetryM.addData("Moving", spindexerIsMoving);
+        telemetryM.addData("Reached Target", hasReachedTarget);
+        telemetryM.addData("Settling", spindexer.isSettling());
+        telemetryM.addData("Position Index", currentPositionIndex);
+        telemetryM.addData("Positions Completed", String.format("%d/%d", positionsCompleted, TOTAL_POSITIONS_TO_TEST));
+        telemetryM.addData("Mode", intakeMode ? "INTAKE" : "OUTTAKE");
         
         // Only show score if test is complete (score is calculated)
         if (!testInProgress && metrics.score < Double.MAX_VALUE) {
-            telemetry.addData("Current Score", "%.2f", metrics.score);
+            telemetryM.addData("Current Score", String.format("%.2f", metrics.score));
         }
         if (bestMetrics.score < Double.MAX_VALUE) {
-            telemetry.addData("Best Score", "%.2f", bestMetrics.score);
+            telemetryM.addData("Best Score", String.format("%.2f", bestMetrics.score));
         }
         
         // Show intake status
         if (currentPhase == TuningPhase.LOADING_BALLS) {
-            telemetry.addData("Intake", "OFF (loading balls)");
+            telemetryM.addData("Intake", "OFF (loading balls)");
         } else {
-            telemetry.addData("Intake", 
+            telemetryM.addData("Intake", 
                 (currentPhase == TuningPhase.TUNING_D || currentPhase == TuningPhase.TUNING_I) 
                     ? "ON (D/I tuning)" : "OFF (P tuning)");
         }
@@ -645,40 +650,41 @@ public class SpindexerAutoTune extends LinearOpMode {
         if (currentPhase == TuningPhase.LOADING_BALLS || 
             currentPhase == TuningPhase.TUNING_D || 
             currentPhase == TuningPhase.TUNING_I) {
-            telemetry.addData("Best P", "%.4f", bestP);
+            telemetryM.addData("Best P", String.format("%.4f", bestP));
         }
 
         // Graph data - Panels Graph plugin reads numeric values from telemetry automatically
         // All values below are numeric and will be automatically detected by Graph plugin
-        telemetry.addData("Position", currentPos);
-        telemetry.addData("Target", targetPos);
-        telemetry.addData("Error", error);
-        telemetry.addData("P", currentP);
-        telemetry.addData("I", currentI);
-        telemetry.addData("D", currentD);
-        telemetry.addData("Time", timeSinceMove);
+        telemetryM.addData("Position", currentPos);
+        telemetryM.addData("Target", targetPos);
+        telemetryM.addData("Error", error);
+        telemetryM.addData("P", currentP);
+        telemetryM.addData("I", currentI);
+        telemetryM.addData("D", currentD);
+        telemetryM.addData("Time", timeSinceMove);
         
         // Performance metrics for graphing (when available)
         if (metrics.score < Double.MAX_VALUE) {
-            telemetry.addData("SettlingTime", metrics.settlingTime);
-            telemetry.addData("Overshoot", metrics.maxOvershoot);
-            telemetry.addData("SteadyStateError", metrics.steadyStateError);
-            telemetry.addData("Oscillations", metrics.oscillationCount);
-            telemetry.addData("Score", metrics.score);
+            telemetryM.addData("SettlingTime", metrics.settlingTime);
+            telemetryM.addData("Overshoot", metrics.maxOvershoot);
+            telemetryM.addData("SteadyStateError", metrics.steadyStateError);
+            telemetryM.addData("Oscillations", metrics.oscillationCount);
+            telemetryM.addData("Score", metrics.score);
         }
         
         // Best values for comparison graphing
         if (bestMetrics.score < Double.MAX_VALUE) {
-            telemetry.addData("BestScore", bestMetrics.score);
+            telemetryM.addData("BestScore", bestMetrics.score);
         }
-        telemetry.addData("BestP", bestP);
-        telemetry.addData("BestD", bestD);
-        telemetry.addData("BestI", bestI);
+        telemetryM.addData("BestP", bestP);
+        telemetryM.addData("BestD", bestD);
+        telemetryM.addData("BestI", bestI);
         
         // Position tracking for graphs
-        telemetry.addData("PositionIndex", currentPositionIndex);
-        telemetry.addData("PositionsCompleted", positionsCompleted);
+        telemetryM.addData("PositionIndex", currentPositionIndex);
+        telemetryM.addData("PositionsCompleted", positionsCompleted);
         
-        telemetry.update();
+        // Update both Panels and FTC telemetry
+        telemetryM.update(telemetry);
     }
 }
