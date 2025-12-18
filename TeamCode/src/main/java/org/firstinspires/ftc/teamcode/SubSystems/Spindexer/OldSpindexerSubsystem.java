@@ -279,6 +279,13 @@ public class OldSpindexerSubsystem {
         mainTargetReached = false;
     }
 
+    public void resetPIDOnly() {
+        integral = 0;
+        lastError = 0;
+        isSettling = false;
+        mainTargetReached = false;
+    }
+    
     private int normalizeTicks(int ticks) {
         int normalized = ticks % (int) TICKS_PER_REVOLUTION;
         if (normalized < 0) {

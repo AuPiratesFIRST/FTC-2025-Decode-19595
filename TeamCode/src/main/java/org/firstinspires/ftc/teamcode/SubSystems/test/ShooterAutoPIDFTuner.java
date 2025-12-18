@@ -75,12 +75,18 @@ public class ShooterAutoPIDFTuner extends LinearOpMode {
     private boolean testInProgress = false;
     private boolean testJustFinished = false;
     private boolean shooterIsSettling = false;
+    private boolean hasReachedSteadyState = false;
     private long motionStartTime = 0;
-    private static final long MAX_TEST_TIME_MS = 5000;
-    private static final long SETTLING_TIME_MS = 1000; // Time to wait for shooter to settle
+    private long steadyStateStartTime = 0;
+    private static final long MAX_TEST_TIME_MS = 6000;
+    private static final long INITIAL_SETTLING_TIME_MS = 1500; // Time to wait before measuring
+    private static final long STEADY_STATE_DURATION_MS = 1000; // Time to maintain steady state
     private double lastError = 0;
     private int errorSignChanges = 0;
     private double maxError = 0;
+    private double steadyStateErrorSum = 0;
+    private int steadyStateSamples = 0;
+    private long firstWithinToleranceTime = 0;
 
     @Override
     public void runOpMode() throws InterruptedException {
@@ -217,14 +223,19 @@ public class ShooterAutoPIDFTuner extends LinearOpMode {
         shooter.setTargetRPM(TARGET_RPM);
 
         shooterIsSettling = true;
+        hasReachedSteadyState = false;
         testInProgress = true;
         testJustFinished = false;
 
         motionStartTime = System.currentTimeMillis();
+        steadyStateStartTime = 0;
+        firstWithinToleranceTime = 0;
         metrics.reset();
         lastError = 0;
         errorSignChanges = 0;
         maxError = 0;
+        steadyStateErrorSum = 0;
+        steadyStateSamples = 0;
     }
 
     // Run the test to evaluate the current PIDF coefficients
@@ -244,32 +255,66 @@ public class ShooterAutoPIDFTuner extends LinearOpMode {
         long now = System.currentTimeMillis();
         long elapsed = now - motionStartTime;
 
-        // Wait for shooter to settle before measuring
-        if (shooterIsSettling && elapsed > SETTLING_TIME_MS) {
-            shooterIsSettling = false;
-            motionStartTime = now; // Reset timer for actual measurement
+        // Phase 1: Wait for initial settling (let motor reach target)
+        if (shooterIsSettling && elapsed < INITIAL_SETTLING_TIME_MS) {
+            // Still in initial settling phase
+            return;
         }
 
-        // Measure performance after settling
+        if (shooterIsSettling && elapsed >= INITIAL_SETTLING_TIME_MS) {
+            shooterIsSettling = false;
+            // Start measuring steady-state performance
+        }
+
+        // Phase 2: Measure steady-state performance
         if (!shooterIsSettling) {
-            // Check if we've reached steady state (within tolerance for a period)
-            if (absError <= RPM_TOLERANCE) {
-                if (metrics.settlingTime == 0) {
-                    metrics.settlingTime = now - motionStartTime;
-                }
-                metrics.steadyStateError = absError;
+            // Track when we first get within tolerance
+            if (absError <= RPM_TOLERANCE && firstWithinToleranceTime == 0) {
+                firstWithinToleranceTime = now;
+                metrics.settlingTime = now - motionStartTime;
             }
 
+            // Collect steady-state samples when within tolerance
+            if (absError <= RPM_TOLERANCE) {
+                if (!hasReachedSteadyState) {
+                    hasReachedSteadyState = true;
+                    steadyStateStartTime = now;
+                }
+                steadyStateErrorSum += absError;
+                steadyStateSamples++;
+            } else {
+                // Lost steady state - reset
+                hasReachedSteadyState = false;
+                steadyStateStartTime = 0;
+            }
+
+            // Check if we've maintained steady state long enough
+            boolean steadyStateComplete = hasReachedSteadyState &&
+                    (now - steadyStateStartTime) >= STEADY_STATE_DURATION_MS;
+
             // Check for timeout
-            if (elapsed > MAX_TEST_TIME_MS) {
-                metrics.settlingTime = elapsed;
-                metrics.steadyStateError = absError;
+            boolean timeout = elapsed > MAX_TEST_TIME_MS;
+
+            if (steadyStateComplete || timeout) {
+                // Calculate final metrics
+                if (steadyStateSamples > 0) {
+                    metrics.steadyStateError = steadyStateErrorSum / steadyStateSamples;
+                } else {
+                    metrics.steadyStateError = absError;
+                }
+
+                // If we never reached steady state, use timeout as settling time
+                if (metrics.settlingTime == 0) {
+                    metrics.settlingTime = elapsed;
+                }
+
                 metrics.maxOvershoot = maxError;
                 metrics.oscillationCount = errorSignChanges;
-                metrics.oscillating = errorSignChanges > 4;
+                metrics.oscillating = errorSignChanges > 6; // More lenient for velocity control
 
                 metrics.score = calculateScore();
 
+                // Update best if within tolerance and better score
                 if (metrics.steadyStateError <= RPM_TOLERANCE &&
                         metrics.score < bestMetrics.score) {
                     copyMetrics(metrics, bestMetrics);
@@ -286,11 +331,15 @@ public class ShooterAutoPIDFTuner extends LinearOpMode {
         }
     }
 
+    // Improved scoring function for velocity control (based on WPI principles)
     private double calculateScore() {
-        return metrics.steadyStateError * 10 +
-                metrics.settlingTime * 0.01 +
-                metrics.maxOvershoot * 5 +
-                (metrics.oscillating ? 1000 : 0);
+        // Lower score is better
+        // For velocity control: steady-state accuracy > settling time > overshoot > oscillations
+        // WPI emphasizes that feedforward (kF) handles most of the work, PID just fine-tunes
+        return metrics.steadyStateError * 15.0 +           // Accuracy is most important
+                metrics.settlingTime * 0.02 +              // Faster settling is better
+                metrics.maxOvershoot * 3.0 +               // Overshoot penalty (less critical for velocity)
+                (metrics.oscillating ? 2000.0 : 0.0);      // Heavy penalty for oscillations
     }
 
     // Copy performance metrics
@@ -312,9 +361,16 @@ public class ShooterAutoPIDFTuner extends LinearOpMode {
 
         telemetry.addData("Phase", currentPhase);
         telemetry.addData("Settling", shooterIsSettling);
+        telemetry.addData("Steady State", hasReachedSteadyState);
         telemetry.addData("Current RPM", "%.1f", currentRPM);
         telemetry.addData("Target RPM", "%.1f", TARGET_RPM);
         telemetry.addData("Error", "%.1f", error);
+        
+        if (testInProgress) {
+            telemetry.addData("Steady Samples", steadyStateSamples);
+            telemetry.addData("Current Score", "%.2f", metrics.score);
+            telemetry.addData("Best Score", "%.2f", bestMetrics.score);
+        }
 
         telemetry.addData("Current kF", "%.2f", currentKf);
         telemetry.addData("Current kP", "%.2f", currentKp);
