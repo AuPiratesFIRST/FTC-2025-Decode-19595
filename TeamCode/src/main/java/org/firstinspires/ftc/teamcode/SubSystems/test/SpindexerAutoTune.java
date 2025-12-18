@@ -115,13 +115,13 @@ public class SpindexerAutoTune extends LinearOpMode {
         telemetryM = PanelsTelemetry.INSTANCE.getTelemetry();
         
         // Step 1: Manual physical alignment
-        telemetry.clear();
-        telemetry.addLine("=== MANUAL ALIGNMENT ===");
-        telemetry.addLine("Please move spindexer to physical zero (0) position.");
-        telemetry.addLine("This should be the starting position (position 0).");
-        telemetry.addLine("");
-        telemetry.addLine("Press A when spindexer is at physical zero...");
-        telemetry.update();
+        telemetryM.clear();
+        telemetryM.addLine("=== MANUAL ALIGNMENT ===");
+        telemetryM.addLine("Please move spindexer to physical zero (0) position.");
+        telemetryM.addLine("This should be the starting position (position 0).");
+        telemetryM.addLine("");
+        telemetryM.addLine("Press A when spindexer is at physical zero...");
+        telemetryM.update(telemetry);
         
         // Wait for operator to physically align spindexer
         boolean aPressed = false;
@@ -135,9 +135,9 @@ public class SpindexerAutoTune extends LinearOpMode {
         }
         
         // Step 2: Software encoder reset (aligns software zero with physical zero)
-        telemetry.clear();
-        telemetry.addLine("Resetting encoder to software zero...");
-        telemetry.update();
+        telemetryM.clear();
+        telemetryM.addLine("Resetting encoder to software zero...");
+        telemetryM.update(telemetry);
         
         spindexer.reset();  // Resets encoder to define software zero
         sleep(500);
@@ -145,14 +145,14 @@ public class SpindexerAutoTune extends LinearOpMode {
         // Step 3: Verify encoder is near zero (optional safety check)
         int currentPos = spindexer.getCurrentPosition();
         if (Math.abs(currentPos) > 5) {  // Allow small tolerance
-            telemetry.clear();
-            telemetry.addLine("⚠️ WARNING: Encoder not zeroed correctly!");
-            telemetry.addData("Encoder reads", currentPos);
-            telemetry.addLine("Expected: ~0");
-            telemetry.addLine("This may indicate mechanical misalignment.");
-            telemetry.addLine("");
-            telemetry.addLine("Press A to continue anyway, or X to reset.");
-            telemetry.update();
+            telemetryM.clear();
+            telemetryM.addLine("⚠️ WARNING: Encoder not zeroed correctly!");
+            telemetryM.addData("Encoder reads", currentPos);
+            telemetryM.addLine("Expected: ~0");
+            telemetryM.addLine("This may indicate mechanical misalignment.");
+            telemetryM.addLine("");
+            telemetryM.addLine("Press A to continue anyway, or X to reset.");
+            telemetryM.update(telemetry);
             
             // Wait for user acknowledgment
             boolean acknowledged = false;
@@ -173,15 +173,15 @@ public class SpindexerAutoTune extends LinearOpMode {
         }
         
         // Step 4: Ready to start tuning
-        telemetry.clear();
-        telemetry.addLine("Spindexer Auto PID Tuner");
-        telemetry.addLine("Encoder zeroed: " + spindexer.getCurrentPosition());
-        telemetry.addLine("");
-        telemetry.addLine("A = Start");
-        telemetry.addLine("B = Skip Phase");
-        telemetry.addLine("X = Reset");
-        telemetry.addLine("Y = Finish");
-        telemetry.update();
+        telemetryM.clear();
+        telemetryM.addLine("Spindexer Auto PID Tuner");
+        telemetryM.addLine("Encoder zeroed: " + spindexer.getCurrentPosition());
+        telemetryM.addLine("");
+        telemetryM.addLine("A = Start");
+        telemetryM.addLine("B = Skip Phase");
+        telemetryM.addLine("X = Reset");
+        telemetryM.addLine("Y = Finish");
+        telemetryM.update(telemetry);
 
         waitForStart();
 
@@ -626,7 +626,8 @@ public class SpindexerAutoTune extends LinearOpMode {
         telemetryM.addData("Reached Target", hasReachedTarget);
         telemetryM.addData("Settling", spindexer.isSettling());
         telemetryM.addData("Position Index", currentPositionIndex);
-        telemetryM.addData("Positions Completed", String.format("%d/%d", positionsCompleted, TOTAL_POSITIONS_TO_TEST));
+        telemetryM.addData("Positions Completed", positionsCompleted);
+        telemetryM.addData("Total Positions", TOTAL_POSITIONS_TO_TEST);
         telemetryM.addData("Mode", intakeMode ? "INTAKE" : "OUTTAKE");
         
         // Only show score if test is complete (score is calculated)
