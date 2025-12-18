@@ -631,10 +631,10 @@ public class SpindexerAutoTune extends LinearOpMode {
         
         // Only show score if test is complete (score is calculated)
         if (!testInProgress && metrics.score < Double.MAX_VALUE) {
-            telemetryM.addData("Current Score", String.format("%.2f", metrics.score));
+            telemetryM.addData("Current Score", metrics.score);
         }
         if (bestMetrics.score < Double.MAX_VALUE) {
-            telemetryM.addData("Best Score", String.format("%.2f", bestMetrics.score));
+            telemetryM.addData("Best Score", bestMetrics.score);
         }
         
         // Show intake status
@@ -650,7 +650,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         if (currentPhase == TuningPhase.LOADING_BALLS || 
             currentPhase == TuningPhase.TUNING_D || 
             currentPhase == TuningPhase.TUNING_I) {
-            telemetryM.addData("Best P", String.format("%.4f", bestP));
+            telemetryM.addData("Best P", bestP);
         }
 
         // Graph data - Panels Graph plugin reads numeric values from telemetry automatically
