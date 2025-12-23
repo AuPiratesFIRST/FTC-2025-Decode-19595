@@ -10,7 +10,7 @@ import org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
-import org.firstinspires.ftc.teamcode.SubSystems.Funnel.FunnelSubsystem;
+//import org.firstinspires.ftc.teamcode.SubSystems.Funnel.FunnelSubsystem;
 
 /**
  * Blue Alliance TeleOp with AprilTag alignment and automated scoring sequence.
@@ -48,7 +48,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
     private ShooterSubsystem shooter;
     private OldSpindexerSubsystem spindexer;
     private AprilTagNavigator aprilTag;
-    private FunnelSubsystem funnel;
+//    private FunnelSubsystem funnel;
 
     // Spindexer control variables
     private int spindexerPositionIndex = 0;
@@ -114,7 +114,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
-        funnel = new FunnelSubsystem(hardwareMap, telemetry);
+//        funnel = new FunnelSubsystem(hardwareMap, telemetry);
 
         telemetry.addData("Status", "Initialized - Blue Alliance");
         telemetry.addData("Target Goal", "Blue Alliance (Tag 20)");
@@ -130,7 +130,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
             handleIntake();
             handleShooter();
             handleSpindexer();
-            handleFunnel();
+//            handleFunnel();
             handleAprilTagAlignment();
 
             // ==================== TELEMETRY ====================
@@ -141,7 +141,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
         drive.stop();
         intake.stop();
         shooter.stop();
-        funnel.retract(); // Retract funnels on stop
+//        funnel.retract(); // Retract funnels on stop
         aprilTag.closeVision();
     }
 
@@ -342,15 +342,15 @@ public class BlueAllianceTeleOp extends LinearOpMode {
         }
         spindexerPressLast = spPress;
     }
-
-    private void handleFunnel() {
-        // Funnel toggle (B Button on Gamepad 2)
-        boolean b = gamepad2.b;
-        if (b && !b2PressedLast) {
-            funnel.toggle();
-        }
-        b2PressedLast = b;
-    }
+//
+//    private void handleFunnel() {
+//        // Funnel toggle (B Button on Gamepad 2)
+//        boolean b = gamepad2.b;
+//        if (b && !b2PressedLast) {
+//            funnel.toggle();
+//        }
+//        b2PressedLast = b;
+//    }
 
     private void handleAprilTagAlignment() {
         boolean y = gamepad2.y;
@@ -406,7 +406,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
                 (shooterNeedsToSpinUp ? "WAITING FOR RPM" : "READY")));
         telemetry.addData("Shooter RPM", "%.0f / %.0f", shooter.getCurrentRPM(), shooter.getTargetRPM());
         telemetry.addData("Shooter At RPM", shooter.isAtTargetRPM());
-        telemetry.addData("Funnel Status", funnel.isExtended() ? "EXTENDED" : "RETRACTED");
+//        telemetry.addData("Funnel Status", funnel.isExtended() ? "EXTENDED" : "RETRACTED");
         
         // AprilTag info
         aprilTag.updateDECODELocalizationTelemetry();

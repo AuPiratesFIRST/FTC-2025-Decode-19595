@@ -26,12 +26,11 @@ public class Constants {
             .rightRearMotorName("rightRear")
             .leftRearMotorName("leftRear")
             .leftFrontMotorName("leftFront")
-            .leftFrontMotorDirection(DcMotorSimple.Direction.REVERSE)
-            .leftRearMotorDirection(DcMotorSimple.Direction.REVERSE)
-            .rightFrontMotorDirection(DcMotorSimple.Direction.FORWARD)
-            .rightRearMotorDirection(DcMotorSimple.Direction.FORWARD)
-            .xVelocity(80.84364322833146)
-            .yVelocity(98.32909370940584)
+            .leftFrontMotorDirection(DcMotorSimple.Direction.FORWARD)
+            .leftRearMotorDirection(DcMotorSimple.Direction.FORWARD)
+            .rightFrontMotorDirection(DcMotorSimple.Direction.REVERSE)
+            .rightRearMotorDirection(DcMotorSimple.Direction.REVERSE)
+
             ;
     public static DriveEncoderConstants localizerConstants =
             new DriveEncoderConstants()
@@ -41,27 +40,23 @@ public class Constants {
                     .rightFrontMotorName("rightFront")
                     .leftRearMotorName("leftRear")
                     .rightRearMotorName("rightRear")
-                    .leftFrontEncoderDirection(Encoder.REVERSE)
-                    .leftRearEncoderDirection(Encoder.REVERSE)
-                    .rightFrontEncoderDirection(Encoder.FORWARD)
-                    .rightRearEncoderDirection(Encoder.FORWARD)
-                    .forwardTicksToInches(0.006858033813605822)
-                    .strafeTicksToInches(0.00974991185)
-                    .turnTicksToInches(0.01381064545)
+                    .leftFrontEncoderDirection(Encoder.FORWARD)
+                    .leftRearEncoderDirection(Encoder.FORWARD)
+                    .rightFrontEncoderDirection(Encoder.REVERSE)
+                    .rightRearEncoderDirection(Encoder.REVERSE)
+                    .forwardTicksToInches(0)
+                    .strafeTicksToInches(0)
+                    .turnTicksToInches(0)
                     ;
 
-    public static PathConstraints pathConstraints = new PathConstraints(
-            0.995,
-            500,
-            1,
-            1
-    );
+
+    public static PathConstraints pathConstraints = new PathConstraints(0.99, 100, 1, 1);
 
     public static Follower createFollower(HardwareMap hardwareMap) {
         return new FollowerBuilder(followerConstants, hardwareMap)
                 .mecanumDrivetrain(driveConstants)
-                .driveEncoderLocalizer(localizerConstants)
                 .pathConstraints(pathConstraints)
+                .driveEncoderLocalizer(localizerConstants)
                 .build();
     }
 }

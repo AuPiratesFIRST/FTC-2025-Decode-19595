@@ -24,7 +24,7 @@ public class OldSpindexerSubsystem {
     private static final double DEGREES_PER_TICK = 360.0 / TICKS_PER_REVOLUTION;
 
     // Three positions for three active parts (in encoder ticks)
-    private static final int POSITION_1_TICKS = 0;
+    private static final int POSITION_1_TICKS = 10;
     private static final int POSITION_2_TICKS = (int) (TICKS_PER_REVOLUTION / 3.0);
     private static final int POSITION_3_TICKS = (int) (TICKS_PER_REVOLUTION * 2.0 / 3.0);
 
@@ -57,10 +57,9 @@ public class OldSpindexerSubsystem {
 
     // PID coefficients - tuned for smooth, damped motion without oscillations
     private double kP = 0.006;      // Lower kP to reduce "kick" as it reaches target
-    private double kI = 0.0001;     // Very low kI - only for constant friction compensation
-    private double kD = 0.025;      // Higher kD acts as "shock absorber" to dampen momentum
+    private double kD = 0.007;      // Higher kD acts as "shock absorber" to dampen momentum
 
-    private double integral = 0;
+//    private double integral = 0;
     private double lastError = 0;
     private int targetPosition = 0;
 
@@ -119,7 +118,7 @@ public class OldSpindexerSubsystem {
         spindexerMotor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         spindexerMotor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
-        integral = 0;
+//        integral = 0;
         lastError = 0;
         targetPosition = 0;
     }
@@ -127,7 +126,6 @@ public class OldSpindexerSubsystem {
     public void goToPosition(SpindexerPosition position) {
         pidEnabled = true;
         targetPosition = normalizeTicks(position.getTicks());
-        integral = 0;
         lastError = 0;
         isSettling = false;
         mainTargetReached = false;
@@ -181,7 +179,7 @@ public class OldSpindexerSubsystem {
 
         if (isAtPosition() && !isSettling && mainTargetReached) {
             spindexerMotor.setPower(0);
-            integral = 0;
+//            integral = 0;
             lastError = 0;
             if (telemetry != null && testMode) {
                 telemetry.addData("Spindexer Status", "AT POSITION - STOPPED");
@@ -194,7 +192,7 @@ public class OldSpindexerSubsystem {
         // P: Drives position error to zero (acts like a "software-defined spring")
         // I: Accumulates error over time (eliminates steady-state error, use sparingly)
         // D: Drives velocity error to zero (acts like a "software-defined damper")
-        
+
         error = shortestError(targetPosition, currentPosition);
 
         // 1. Proportional term: K_p * e(t)
@@ -202,19 +200,19 @@ public class OldSpindexerSubsystem {
         // Higher kP = stronger pull, but can cause overshoot if too high
         double proportional = error * kP;
 
-        // 2. Integral term: K_i * ∫e(τ)dτ
-        // Accumulates error over time to eliminate steady-state error
-        // WPI Note: Integral gain generally not recommended for FRC - better to use feedforwards
-        // We only activate it near target to prevent windup during long movements
-        if (Math.abs(error) < 50 && Math.abs(error) > POSITION_TOLERANCE) {
-            // Only accumulate when close to target (within 50 ticks) but not yet at target
-            // This prevents huge integral buildup during long movements across the circle
-            integral += error;
-        } else {
-            integral = 0; // Reset if we are far away or already inside tolerance
-        }
-        integral = Range.clip(integral, -100, 100); // Lower clip range to prevent overshoot
-        double integralTerm = integral * kI;
+//        // 2. Integral term: K_i * ∫e(τ)dτ
+//        // Accumulates error over time to eliminate steady-state error
+//        // WPI Note: Integral gain generally not recommended for FRC - better to use feedforwards
+//        // We only activate it near target to prevent windup during long movements
+//        if (Math.abs(error) < 50 && Math.abs(error) > POSITION_TOLERANCE) {
+//            // Only accumulate when close to target (within 50 ticks) but not yet at target
+//            // This prevents huge integral buildup during long movements across the circle
+//            integral += error;
+//        } else {
+//            integral = 0; // Reset if we are far away or already inside tolerance
+//        }
+//        integral = Range.clip(integral, -100, 100); // Lower clip range to prevent overshoot
+//        double integralTerm = integral * kI;
 
         // 3. Derivative term: K_d * de/dt
         // Drives velocity error to zero - acts as damping/shock absorber
@@ -225,7 +223,7 @@ public class OldSpindexerSubsystem {
         lastError = error;
 
         // Combine all terms: u(t) = K_p*e(t) + K_i*∫e(τ)dτ + K_d*de/dt
-        double output = proportional + integralTerm + derivative;
+        double output = proportional +  derivative;
 
         // Apply power limit
         output = Range.clip(output, -currentPowerLimit, currentPowerLimit);
@@ -235,14 +233,13 @@ public class OldSpindexerSubsystem {
         // When within tolerance, stop completely and reset integral
         if (Math.abs(error) <= POSITION_TOLERANCE) {
             output = 0;
-            integral = 0;
         }
-        
+
         // 5. Wrap-around protection: Reduce aggressiveness when near wrap-around point
         // Prevents overshooting when approaching position 0 from high encoder values (like 2110)
         int normalizedCurrent = normalizeTicks(currentPosition);
         int normalizedTarget = normalizeTicks(targetPosition);
-        
+
         // If target is 0 and we're in the wrap-around danger zone (last 10% of rotation, > 1935 ticks)
         if (normalizedTarget == 0 && normalizedCurrent > (TICKS_PER_REVOLUTION * 0.9)) {
             // Calculate how close we are to the wrap-around point (0)
@@ -254,7 +251,7 @@ public class OldSpindexerSubsystem {
                 output *= reductionFactor; // Reduce output to prevent overshoot
             }
         }
-        
+
         // Also reduce aggressiveness when error is small and we're near wrap-around
         // This prevents small errors from causing large overshoots that wrap around
         if (Math.abs(error) < 50) {
@@ -292,18 +289,17 @@ public class OldSpindexerSubsystem {
 
     public void setPIDCoefficients(double kP, double kI, double kD) {
         this.kP = kP;
-        this.kI = kI;
         this.kD = kD;
     }
 
     public double[] getPIDCoefficients() {
-        return new double[] { kP, kI, kD };
+        return new double[] { kP, kD };
     }
 
     /**
      * Set manual power for direct motor control (used in manual mode).
      * Motor runs in RUN_WITHOUT_ENCODER mode for maximum torque.
-     * 
+     *
      * @param power Motor power (-1.0 to 1.0). Positive = forward, Negative =
      *              reverse
      */
@@ -317,7 +313,7 @@ public class OldSpindexerSubsystem {
      * Get recommended manual power multiplier for TeleOp.
      * Higher value = more torque but less control.
      * For 312 RPM motor with high torque, 0.7-0.8 is recommended.
-     * 
+     *
      * @return Recommended manual power multiplier (0.0 to 1.0)
      */
     public static double getRecommendedManualPowerMultiplier() {
@@ -328,19 +324,17 @@ public class OldSpindexerSubsystem {
         spindexerMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         spindexerMotor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         targetPosition = 0;
-        integral = 0;
         lastError = 0;
         isSettling = false;
         mainTargetReached = false;
     }
 
     public void resetPIDOnly() {
-        integral = 0;
         lastError = 0;
         isSettling = false;
         mainTargetReached = false;
     }
-    
+
     private int normalizeTicks(int ticks) {
         int normalized = ticks % (int) TICKS_PER_REVOLUTION;
         if (normalized < 0) {
@@ -353,7 +347,7 @@ public class OldSpindexerSubsystem {
         // Normalize both target and current to 0-2150 range for consistent calculation
         int normalizedTarget = normalizeTicks(target);
         int normalizedCurrent = normalizeTicks(current);
-        
+
         double raw = normalizedTarget - normalizedCurrent;
 
         // Special case: When target is 0 and current is near wrap-around (high end)
@@ -361,14 +355,14 @@ public class OldSpindexerSubsystem {
         if (normalizedTarget == 0 && normalizedCurrent > (TICKS_PER_REVOLUTION * 0.5)) {
             // Calculate forward distance to 0 (completing the circle)
             double forwardDistance = TICKS_PER_REVOLUTION - normalizedCurrent;
-            
+
             // If we're very close to 0 (within last 5% of rotation), use backward path
             // to prevent overshooting and wrapping around
             if (normalizedCurrent > (TICKS_PER_REVOLUTION * 0.95)) {
                 // Very close to wrap - use backward to prevent overshoot
                 return -normalizedCurrent; // Small negative error, go backward slightly
             }
-            
+
             // Otherwise, use forward path to complete the circle
             // This is the normal case: from position 2 (1434) or 3 (2150) to position 0
             return forwardDistance; // Forward to finish circle
@@ -445,7 +439,7 @@ public class OldSpindexerSubsystem {
 
     /**
      * Get intake position ticks for a given index (0, 1, or 2)
-     * 
+     *
      * @param index Position index (0, 1, or 2)
      * @return Encoder ticks for the intake position, or -1 if invalid index
      */
@@ -459,7 +453,7 @@ public class OldSpindexerSubsystem {
     /**
      * Get outtake position ticks for a given index (0, 1, or 2)
      * Returns raw encoder values (not normalized) for direct position control.
-     * 
+     *
      * @param index Position index (0, 1, or 2)
      * @return Raw encoder ticks for the outtake position, or -1 if invalid index
      */
@@ -472,7 +466,7 @@ public class OldSpindexerSubsystem {
 
     /**
      * Get position ticks for current mode (intake or outtake) and index
-     * 
+     *
      * @param index Position index (0, 1, or 2)
      * @return Encoder ticks for the position based on current mode, or -1 if
      *         invalid index
@@ -489,10 +483,10 @@ public class OldSpindexerSubsystem {
      * Go to position based on current mode (intake/outtake) and index
      * This is the recommended method for TeleOp use as it automatically
      * selects the correct position based on the current mode.
-     * 
+     *
      * For intake positions: Uses normalized ticks (0-2150 range)
      * For outtake positions: Uses raw encoder values (direct positioning)
-     * 
+     *
      * @param index Position index (0, 1, or 2)
      */
     public void goToPositionForCurrentMode(int index) {
@@ -507,7 +501,6 @@ public class OldSpindexerSubsystem {
                 // Outtake positions are raw values - use directly but ensure they're valid
                 targetPosition = ticks;
             }
-            integral = 0;
             lastError = 0;
             isSettling = false;
             mainTargetReached = false;
@@ -518,7 +511,7 @@ public class OldSpindexerSubsystem {
 
     /**
      * Get all intake positions as an array
-     * 
+     *
      * @return Array of intake position ticks
      */
     public static int[] getIntakePositions() {
@@ -527,7 +520,7 @@ public class OldSpindexerSubsystem {
 
     /**
      * Get all outtake positions as an array (raw encoder values)
-     * 
+     *
      * @return Array of outtake position ticks (raw encoder values)
      */
     public static int[] getOuttakePositions() {
@@ -537,11 +530,11 @@ public class OldSpindexerSubsystem {
     /**
      * Get the starting spindexer position index based on motif pattern.
      * The first color in the motif determines which position should be shot first.
-     * 
+     *
      * For motif GPG:
      * - Position 0 has first color (G) - should shoot first
      * - Returns index 0
-     * 
+     *
      * @param motif 3-color motif array (e.g., [GREEN, PURPLE, GREEN])
      * @return Starting position index (0, 1, or 2) for shooting sequence
      */
@@ -560,7 +553,7 @@ public class OldSpindexerSubsystem {
      * Rotate spindexer to the correct starting position based on motif.
      * This should be called when you want to prepare for shooting based on detected
      * motif.
-     * 
+     *
      * @param motif 3-color motif array
      */
     public void rotateToMotifStartPosition(ArtifactColor[] motif) {
