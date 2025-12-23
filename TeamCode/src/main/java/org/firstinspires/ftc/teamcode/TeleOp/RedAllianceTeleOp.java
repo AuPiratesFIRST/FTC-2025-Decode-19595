@@ -10,6 +10,7 @@ import org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
+import org.firstinspires.ftc.teamcode.SubSystems.Funnel.FunnelSubsystem;
 
 /**
  * Red Alliance TeleOp with AprilTag alignment and automated scoring sequence.
@@ -32,6 +33,7 @@ import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
  * - D-Pad Left/Right: Manual spindexer control (when in manual mode)
  * - Right Stick Y: Manual spindexer power control (when in manual mode)
  * - Y Button: Align to Red Alliance goal (Tag 24)
+ * - B Button: Toggle funnel servos (extend/retract)
  * 
  * Automated Sequence:
  * - INTAKE: Move spindexer → Wait for position → Ball settling → Ready
@@ -46,6 +48,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
     private ShooterSubsystem shooter;
     private OldSpindexerSubsystem spindexer;
     private AprilTagNavigator aprilTag;
+    private FunnelSubsystem funnel;
 
     // Spindexer control variables
     private int spindexerPositionIndex = 0;
@@ -64,6 +67,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
     private boolean rbPressedLast = false;
     private boolean yPressedLast = false;
     private boolean xPressedLast = false; // Manual control toggle
+    private boolean b2PressedLast = false; // Funnel toggle (Gamepad 2 B)
     
     // Drive speed toggle
     private double driveSpeed = 1.0;
@@ -110,6 +114,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
+        funnel = new FunnelSubsystem(hardwareMap, telemetry);
 
         telemetry.addData("Status", "Initialized - Red Alliance");
         telemetry.addData("Target Goal", "Red Alliance (Tag 24)");
@@ -125,6 +130,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
             handleIntake();
             handleShooter();
             handleSpindexer();
+            handleFunnel();
             handleAprilTagAlignment();
 
             // ==================== TELEMETRY ====================
@@ -135,6 +141,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
         drive.stop();
         intake.stop();
         shooter.stop();
+        funnel.retract(); // Retract funnels on stop
         aprilTag.closeVision();
     }
 
@@ -348,6 +355,15 @@ public class RedAllianceTeleOp extends LinearOpMode {
         spindexerPressLast = spPress;
     }
 
+    private void handleFunnel() {
+        // Funnel toggle (B Button on Gamepad 2)
+        boolean b = gamepad2.b;
+        if (b && !b2PressedLast) {
+            funnel.toggle();
+        }
+        bPressedLast = b;
+    }
+
     private void handleAprilTagAlignment() {
         boolean y = gamepad2.y;
 
@@ -403,6 +419,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
         telemetry.addData("Shooter Control", shooterManuallyControlled ? "MANUAL" : "AUTOMATED");
         telemetry.addData("Shooter RPM", "%.0f / %.0f", shooter.getCurrentRPM(), shooter.getTargetRPM());
         telemetry.addData("Shooter At RPM", shooter.isAtTargetRPM());
+        telemetry.addData("Funnel Status", funnel.isExtended() ? "EXTENDED" : "RETRACTED");
         
         // AprilTag info
         aprilTag.updateDECODELocalizationTelemetry();

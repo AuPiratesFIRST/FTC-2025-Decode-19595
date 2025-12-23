@@ -13,8 +13,14 @@ import org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem;
  * Based on WPI Turret Position Controller tuning principles:
  * - Tests all 3 positions in sequence (0→1→2) like real TeleOp usage
  * - Uses goToPositionForCurrentMode() to match actual system behavior
- * - Tuning order: P first, then D, then I (per WPI turret tuning)
+ * - Tuning order: P first, then D, then I (per WPI position control tuning)
  * - Aggregates metrics across all positions for comprehensive evaluation
+ * 
+ * WPI Tuning Procedure (for position control):
+ * 1. Set K_p, K_i, K_d to zero
+ * 2. Increase K_p until output oscillates around setpoint, then reduce until oscillations stop
+ * 3. Increase K_d as much as possible without introducing jittering
+ * 4. If steady-state error exists, increase K_i (but feedforward is preferred over I)
  * 
  * This ensures the tuned PID values work well for the actual cycling pattern
  * used during intake and outtake operations.
@@ -45,17 +51,25 @@ public class SpindexerAutoTune extends LinearOpMode {
     private double currentD = 0.0;
     private double currentI = 0.0;
 
+    // WPI Exponential Search: Multiply by 2 until too large, then binary search
+    // This is much faster than linear increments
     private static final double P_MIN = 0.001;
     private static final double P_MAX = 0.05;
-    private static final double P_INCREMENT = 0.001;
+    private double pLow = P_MIN;      // Lower bound for binary search
+    private double pHigh = P_MAX;     // Upper bound for binary search
+    private boolean pOscillating = false;  // Track if we've seen oscillations
+    private boolean pInBinarySearch = false; // Are we in binary search phase?
 
     private static final double D_MIN = 0.0;
     private static final double D_MAX = 0.15;
-    private static final double D_INCREMENT = 0.003;
+    private double dLow = D_MIN;      // Lower bound for binary search
+    private double dHigh = D_MAX;     // Upper bound for binary search
+    private boolean dJittering = false;  // Track if we've seen jittering
+    private boolean dInBinarySearch = false; // Are we in binary search phase?
 
     private static final double I_MIN = 0.0;
     private static final double I_MAX = 0.005;
-    private static final double I_INCREMENT = 0.0001;
+    private static final double I_INCREMENT = 0.0001; // I uses linear search (small range)
 
     private static class PerformanceMetrics {
         double settlingTime;
@@ -63,6 +77,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         double steadyStateError;
         int oscillationCount;
         boolean oscillating;
+        boolean jittering;  // High-frequency small oscillations (D too high)
         double score;
 
         void reset() {
@@ -71,6 +86,7 @@ public class SpindexerAutoTune extends LinearOpMode {
             steadyStateError = 0;
             oscillationCount = 0;
             oscillating = false;
+            jittering = false;
             score = Double.MAX_VALUE;
         }
     }
@@ -94,6 +110,12 @@ public class SpindexerAutoTune extends LinearOpMode {
     private int steadyStateSamples = 0;
     private boolean hasCrossedTarget = false; // Track if we've crossed target at least once
     private long settledStartTime = 0; // When we first entered tolerance
+    
+    // Jitter detection for D tuning (WPI: increase D until jittering appears)
+    private double lastErrorChange = 0;
+    private int rapidErrorChanges = 0; // Count rapid small error changes (jitter)
+    private static final double JITTER_THRESHOLD = 2.0; // Small error changes indicate jitter
+    private static final int JITTER_COUNT_THRESHOLD = 10; // Number of rapid changes to consider jittering
     
     // Position sequence tracking (like TeleOp: 0→1→2→0)
     private int currentPositionIndex = 0;
@@ -226,38 +248,123 @@ public class SpindexerAutoTune extends LinearOpMode {
     }
 
     // Start tuning process
+    // WPI Procedure: Set K_p, K_i, K_d to zero, then increase K_p until oscillations
     private void startTuning() {
         currentPhase = TuningPhase.TUNING_P;
         currentP = P_MIN;
         currentD = 0;
         currentI = 0;
+        pLow = P_MIN;
+        pHigh = P_MAX;
+        pOscillating = false;
+        pInBinarySearch = false;
+        dLow = D_MIN;
+        dHigh = D_MAX;
+        dJittering = false;
+        dInBinarySearch = false;
         bestMetrics.reset();
         startTest();
     }
 
     // Continue tuning based on current phase
+    // Uses WPI exponential search: multiply by 2 until oscillations/jitter, then binary search
     private void continueTuning() {
         if (currentPhase == TuningPhase.TUNING_P) {
-            currentP += P_INCREMENT;
-            if (currentP > P_MAX) {
-                // P tuning complete - transition to loading balls phase
-                currentPhase = TuningPhase.LOADING_BALLS;
-                prepareForBallLoading();
-            } else {
+            // WPI: Increase K_p until oscillations start, then reduce until they stop
+            if (!pOscillating && !pInBinarySearch) {
+                // Exponential search phase: multiply by 2
+                double previousP = currentP;
+                currentP *= 2.0;
+                if (currentP > P_MAX) {
+                    currentP = P_MAX;
+                    // If we hit max without oscillations, P tuning might be complete
+                    if (!metrics.oscillating && metrics.steadyStateError <= POSITION_TOLERANCE) {
+                        currentPhase = TuningPhase.LOADING_BALLS;
+                        prepareForBallLoading();
+                        return;
+                    }
+                }
+                // Check if we found oscillations in last test (metrics from previous test)
+                if (metrics.oscillating) {
+                    pOscillating = true;
+                    pHigh = previousP; // Previous P was the last good one
+                    pLow = previousP / 2.0; // One step before that
+                    currentP = previousP; // Use the last good P
+                    pInBinarySearch = true; // Switch to binary search
+                }
+            } else if (pInBinarySearch) {
+                // Binary search phase: find optimal P between pLow and pHigh
+                if (pHigh - pLow < 0.0005) { // Convergence threshold
+                    // P tuning complete - use best value found
+                    currentPhase = TuningPhase.LOADING_BALLS;
+                    prepareForBallLoading();
+                    return;
+                }
+                // Test midpoint
+                currentP = (pLow + pHigh) / 2.0;
+            }
+            
+            if (currentPhase == TuningPhase.TUNING_P) {
                 startTest();
             }
         } else if (currentPhase == TuningPhase.LOADING_BALLS) {
             // This phase is handled by button press in main loop
             // When user presses A, it will call startDITuning()
         } else if (currentPhase == TuningPhase.TUNING_D) {
-            currentD += D_INCREMENT;
-            if (currentD > D_MAX) {
-                currentPhase = TuningPhase.TUNING_I;
-                currentD = bestD;
-                currentI = I_MIN;
+            // WPI: Increase K_d as much as possible without introducing jittering
+            if (!dJittering && !dInBinarySearch) {
+                // Exponential search phase: multiply by 2
+                double previousD = currentD;
+                if (currentD == 0) {
+                    currentD = 0.001; // Start from small non-zero value
+                } else {
+                    currentD *= 2.0;
+                }
+                if (currentD > D_MAX) {
+                    currentD = D_MAX;
+                    // If we hit max without jittering, D tuning might be complete
+                    if (!metrics.jittering && metrics.steadyStateError <= POSITION_TOLERANCE) {
+                        currentPhase = TuningPhase.TUNING_I;
+                        currentD = bestD; // Use best D found
+                        currentI = I_MIN;
+                    }
+                }
+                // Check if we found jittering in last test
+                if (metrics.jittering) {
+                    dJittering = true;
+                    dHigh = previousD; // Previous D was the last good one
+                    dLow = (previousD == 0) ? 0 : previousD / 2.0; // One step before that
+                    currentD = previousD; // Use the last good D
+                    dInBinarySearch = true; // Switch to binary search
+                }
+            } else if (dInBinarySearch) {
+                // Binary search phase: find optimal D between dLow and dHigh
+                if (dHigh - dLow < 0.001) { // Convergence threshold
+                    // D tuning complete - move to I (if needed)
+                    currentPhase = TuningPhase.TUNING_I;
+                    currentD = bestD; // Use best D found
+                    currentI = I_MIN;
+                } else {
+                    // Test midpoint
+                    currentD = (dLow + dHigh) / 2.0;
+                }
             }
-            startTest();
+            
+            if (currentPhase == TuningPhase.TUNING_D) {
+                startTest();
+            } else if (currentPhase == TuningPhase.TUNING_I) {
+                // I uses linear search (small range, WPI says it's rarely needed)
+                // WPI Note: I tuning should only be done if steady-state error exists after P+D
+                // Feedforward is preferred over integral control
+                currentI += I_INCREMENT;
+                if (currentI > I_MAX) {
+                    finishTuning();
+                    return;
+                }
+                startTest();
+            }
         } else if (currentPhase == TuningPhase.TUNING_I) {
+            // I uses linear search (small range)
             currentI += I_INCREMENT;
             if (currentI > I_MAX) {
                 finishTuning();
@@ -390,7 +497,9 @@ public class SpindexerAutoTune extends LinearOpMode {
         settledStartTime = 0;
         metrics.reset();
         lastError = 0;
+        lastErrorChange = 0;
         errorSignChanges = 0;
+        rapidErrorChanges = 0;
         maxOvershoot = 0;
         steadyStateErrorSum = 0;
         steadyStateSamples = 0;
@@ -418,13 +527,28 @@ public class SpindexerAutoTune extends LinearOpMode {
         }
 
         // Detect oscillations with deadband to avoid noise
-        // Only count sign changes when error is significant
+        // WPI definition: oscillations = system repeatedly crosses setpoint (error sign changes)
+        // Only count sign changes when error is significant (outside deadband)
+        // This detects when system oscillates around the setpoint
         double deadband = POSITION_TOLERANCE * 1.5;
         if (Math.abs(error) > deadband && Math.abs(lastError) > deadband) {
             if ((error > 0 && lastError < 0) || (error < 0 && lastError > 0)) {
                 errorSignChanges++;
             }
         }
+        
+        // Detect jittering (for D tuning) - rapid small error changes
+        // WPI: Increase D until jittering appears, then reduce slightly
+        // Jitter = high-frequency small oscillations near setpoint
+        double errorChange = Math.abs(error - lastError);
+        if (hasReachedTarget && errorChange < JITTER_THRESHOLD && errorChange > 0.1) {
+            // Small rapid changes near setpoint indicate jittering
+            rapidErrorChanges++;
+        } else if (errorChange > JITTER_THRESHOLD) {
+            // Large changes reset jitter count (normal movement)
+            rapidErrorChanges = Math.max(0, rapidErrorChanges - 1);
+        }
+        
         lastError = error;
 
         long now = System.currentTimeMillis();
@@ -495,7 +619,9 @@ public class SpindexerAutoTune extends LinearOpMode {
                     targetReachedTime = 0;
                     settledStartTime = 0;
                     lastError = 0;
+                    lastErrorChange = 0;
                     errorSignChanges = 0;
+                    rapidErrorChanges = 0;
                     maxOvershoot = 0;
                     steadyStateErrorSum = 0;
                     steadyStateSamples = 0;
@@ -506,16 +632,40 @@ public class SpindexerAutoTune extends LinearOpMode {
                     metrics.steadyStateError = totalSteadyStateError / TOTAL_POSITIONS_TO_TEST; // Average
                     metrics.maxOvershoot = totalMaxOvershoot;
                     metrics.oscillationCount = totalOscillationCount;
-                    metrics.oscillating = totalOscillationCount > (TOTAL_POSITIONS_TO_TEST * 4); // More lenient for multiple positions
+                    // WPI: Oscillations = system repeatedly crosses setpoint
+                    // For 3 positions, allow up to 2-3 sign changes per position (6-9 total)
+                    // More than that indicates sustained oscillation
+                    metrics.oscillating = totalOscillationCount > (TOTAL_POSITIONS_TO_TEST * 3);
+                    // WPI: Jittering = high-frequency small oscillations (D too high)
+                    // Detect jittering from rapid error changes near setpoint
+                    metrics.jittering = (rapidErrorChanges > JITTER_COUNT_THRESHOLD);
                     metrics.score = calculateScore();
 
                     // Update best if this is better
+                    // WPI: Only accept solutions that reach setpoint, don't oscillate, and don't jitter
                     if (metrics.steadyStateError <= POSITION_TOLERANCE &&
+                            !metrics.oscillating &&
+                            !metrics.jittering &&
                             metrics.score < bestMetrics.score) {
                         copyMetrics(metrics, bestMetrics);
                         bestP = currentP;
                         bestD = currentD;
                         bestI = currentI;
+                    }
+                    
+                    // Update binary search bounds based on results
+                    if (currentPhase == TuningPhase.TUNING_P && pInBinarySearch) {
+                        if (metrics.oscillating) {
+                            pHigh = currentP; // Too high - reduce upper bound
+                        } else if (metrics.steadyStateError <= POSITION_TOLERANCE) {
+                            pLow = currentP; // Good - increase lower bound
+                        }
+                    } else if (currentPhase == TuningPhase.TUNING_D && dInBinarySearch) {
+                        if (metrics.jittering) {
+                            dHigh = currentD; // Too high - reduce upper bound
+                        } else if (metrics.steadyStateError <= POSITION_TOLERANCE && !metrics.oscillating) {
+                            dLow = currentD; // Good - increase lower bound
+                        }
                     }
 
                     spindexerIsMoving = false;
@@ -540,16 +690,38 @@ public class SpindexerAutoTune extends LinearOpMode {
             
             metrics.maxOvershoot = totalMaxOvershoot;
             metrics.oscillationCount = totalOscillationCount;
-            metrics.oscillating = totalOscillationCount > (positionsCompleted * 4);
+            // WPI: Oscillations = system repeatedly crosses setpoint
+            metrics.oscillating = totalOscillationCount > (positionsCompleted * 3);
+            // WPI: Jittering = high-frequency small oscillations (D too high)
+            metrics.jittering = (rapidErrorChanges > JITTER_COUNT_THRESHOLD);
             metrics.score = calculateScore();
 
-            // Only update best if we completed at least one position and it's better
-            if (positionsCompleted > 0 && metrics.steadyStateError <= POSITION_TOLERANCE &&
+            // Only update best if we completed at least one position, reached setpoint, 
+            // no oscillations, no jittering, and it's better
+            if (positionsCompleted > 0 && 
+                    metrics.steadyStateError <= POSITION_TOLERANCE &&
+                    !metrics.oscillating &&
+                    !metrics.jittering &&
                     metrics.score < bestMetrics.score) {
                 copyMetrics(metrics, bestMetrics);
                 bestP = currentP;
                 bestD = currentD;
                 bestI = currentI;
+            }
+            
+            // Update binary search bounds on timeout as well
+            if (currentPhase == TuningPhase.TUNING_P && pInBinarySearch) {
+                if (metrics.oscillating) {
+                    pHigh = currentP;
+                } else if (metrics.steadyStateError <= POSITION_TOLERANCE) {
+                    pLow = currentP;
+                }
+            } else if (currentPhase == TuningPhase.TUNING_D && dInBinarySearch) {
+                if (metrics.jittering) {
+                    dHigh = currentD;
+                } else if (metrics.steadyStateError <= POSITION_TOLERANCE && !metrics.oscillating) {
+                    dLow = currentD;
+                }
             }
 
             spindexerIsMoving = false;
@@ -558,14 +730,28 @@ public class SpindexerAutoTune extends LinearOpMode {
         }
     }
 
-    // Improved scoring function for position control
+    // Improved scoring function for position control (aligned with WPI principles)
     private double calculateScore() {
         // Lower score is better
-        // Prioritize: steady-state error > settling time > overshoot > oscillations
+        // WPI prioritizes: no oscillations/jittering > accuracy > settling time > overshoot
+        
+        // Oscillations are unacceptable - reject any oscillating solution
+        if (metrics.oscillating) {
+            return Double.MAX_VALUE; // Reject oscillating solutions completely
+        }
+        
+        // Jittering is also unacceptable (D too high) - reject jittering solutions
+        if (metrics.jittering) {
+            return Double.MAX_VALUE; // Reject jittering solutions completely
+        }
+        
+        // For stable (non-oscillating, non-jittering) solutions, prioritize:
+        // 1. Accuracy (steady-state error) - most important
+        // 2. Settling time - faster is better
+        // 3. Overshoot - less is better
         return metrics.steadyStateError * 200.0 +           // Most important: accuracy
                 metrics.settlingTime * 0.15 +                // Speed to target
-                metrics.maxOvershoot * 15.0 +                // Overshoot penalty
-                (metrics.oscillating ? 3000.0 : 0.0);        // Heavy penalty for oscillations
+                metrics.maxOvershoot * 15.0;                 // Overshoot penalty
     }
 
     // Copy performance metrics
@@ -575,6 +761,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         dst.steadyStateError = src.steadyStateError;
         dst.oscillationCount = src.oscillationCount;
         dst.oscillating = src.oscillating;
+        dst.jittering = src.jittering;
         dst.score = src.score;
     }
 
@@ -600,6 +787,23 @@ public class SpindexerAutoTune extends LinearOpMode {
 
         telemetryM.addData("Phase", currentPhase);
         
+        // Show exponential search progress
+        if (currentPhase == TuningPhase.TUNING_P) {
+            if (pInBinarySearch) {
+                telemetryM.addLine("P: Binary Search (pLow=" + String.format("%.4f", pLow) + 
+                                  ", pHigh=" + String.format("%.4f", pHigh) + ")");
+            } else {
+                telemetryM.addLine("P: Exponential Search (multiplying by 2)");
+            }
+        } else if (currentPhase == TuningPhase.TUNING_D) {
+            if (dInBinarySearch) {
+                telemetryM.addLine("D: Binary Search (dLow=" + String.format("%.4f", dLow) + 
+                                  ", dHigh=" + String.format("%.4f", dHigh) + ")");
+            } else {
+                telemetryM.addLine("D: Exponential Search (multiplying by 2)");
+            }
+        }
+        
         // Ball loading reminder (critical for accurate tuning)
         if (currentPhase == TuningPhase.LOADING_BALLS) {
             telemetryM.addLine("");
@@ -621,6 +825,8 @@ public class SpindexerAutoTune extends LinearOpMode {
         telemetryM.addData("Moving", spindexerIsMoving);
         telemetryM.addData("Reached Target", hasReachedTarget);
         telemetryM.addData("Settling", spindexer.isSettling());
+        telemetryM.addData("Oscillating", metrics.oscillating);
+        telemetryM.addData("Jittering", metrics.jittering);
         telemetryM.addData("Position Index", currentPositionIndex);
         telemetryM.addData("Positions Completed", positionsCompleted);
         telemetryM.addData("Total Positions", TOTAL_POSITIONS_TO_TEST);

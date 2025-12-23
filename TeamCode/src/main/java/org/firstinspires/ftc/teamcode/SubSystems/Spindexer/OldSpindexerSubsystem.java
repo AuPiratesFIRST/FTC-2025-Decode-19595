@@ -55,10 +55,10 @@ public class OldSpindexerSubsystem {
     private int settlingTarget = 0;
     private boolean mainTargetReached = false;
 
-    // PID coefficients
-    private double kP = 0.012000;
-    private double kI = 0.001500;
-    private double kD = 0.01800;
+    // PID coefficients - tuned for smooth, damped motion without oscillations
+    private double kP = 0.006;      // Lower kP to reduce "kick" as it reaches target
+    private double kI = 0.0001;     // Very low kI - only for constant friction compensation
+    private double kD = 0.025;      // Higher kD acts as "shock absorber" to dampen momentum
 
     private double integral = 0;
     private double lastError = 0;
@@ -190,26 +190,79 @@ public class OldSpindexerSubsystem {
         }
 
         // --- PID calculation ---
+        // Based on WPI PID principles:
+        // P: Drives position error to zero (acts like a "software-defined spring")
+        // I: Accumulates error over time (eliminates steady-state error, use sparingly)
+        // D: Drives velocity error to zero (acts like a "software-defined damper")
+        
         error = shortestError(targetPosition, currentPosition);
+
+        // 1. Proportional term: K_p * e(t)
+        // Acts like a spring - pulls system toward setpoint with force proportional to error
+        // Higher kP = stronger pull, but can cause overshoot if too high
         double proportional = error * kP;
 
-        if (Math.abs(error) > POSITION_TOLERANCE) {
+        // 2. Integral term: K_i * ∫e(τ)dτ
+        // Accumulates error over time to eliminate steady-state error
+        // WPI Note: Integral gain generally not recommended for FRC - better to use feedforwards
+        // We only activate it near target to prevent windup during long movements
+        if (Math.abs(error) < 50 && Math.abs(error) > POSITION_TOLERANCE) {
+            // Only accumulate when close to target (within 50 ticks) but not yet at target
+            // This prevents huge integral buildup during long movements across the circle
             integral += error;
         } else {
-            integral = 0;
+            integral = 0; // Reset if we are far away or already inside tolerance
         }
-        integral = Range.clip(integral, -500, 500);
+        integral = Range.clip(integral, -100, 100); // Lower clip range to prevent overshoot
         double integralTerm = integral * kI;
 
+        // 3. Derivative term: K_d * de/dt
+        // Drives velocity error to zero - acts as damping/shock absorber
+        // For constant setpoints: slows system down if moving (damping force increases with velocity)
+        // Discrete-time approximation: (e_k - e_{k-1}) approximates de/dt
+        // Note: kD is tuned to account for loop time, so we don't divide by dt here
         double derivative = (error - lastError) * kD;
         lastError = error;
 
+        // Combine all terms: u(t) = K_p*e(t) + K_i*∫e(τ)dτ + K_d*de/dt
         double output = proportional + integralTerm + derivative;
+
+        // Apply power limit
         output = Range.clip(output, -currentPowerLimit, currentPowerLimit);
         output *= SPEED_MULTIPLIER;
 
-        if (Math.abs(output) < MIN_POWER_THRESHOLD) {
+        // 4. Smoother Stop: Instead of hard threshold, let PID naturally settle
+        // When within tolerance, stop completely and reset integral
+        if (Math.abs(error) <= POSITION_TOLERANCE) {
             output = 0;
+            integral = 0;
+        }
+        
+        // 5. Wrap-around protection: Reduce aggressiveness when near wrap-around point
+        // Prevents overshooting when approaching position 0 from high encoder values (like 2110)
+        int normalizedCurrent = normalizeTicks(currentPosition);
+        int normalizedTarget = normalizeTicks(targetPosition);
+        
+        // If target is 0 and we're in the wrap-around danger zone (last 10% of rotation, > 1935 ticks)
+        if (normalizedTarget == 0 && normalizedCurrent > (TICKS_PER_REVOLUTION * 0.9)) {
+            // Calculate how close we are to the wrap-around point (0)
+            double distanceToWrap = TICKS_PER_REVOLUTION - normalizedCurrent;
+            // Reduce output as we approach wrap-around to prevent overshoot
+            // When distance < 100 ticks, start reducing aggressiveness
+            if (distanceToWrap < 100) {
+                double reductionFactor = Math.max(0.3, distanceToWrap / 100.0); // 30% minimum, scales up
+                output *= reductionFactor; // Reduce output to prevent overshoot
+            }
+        }
+        
+        // Also reduce aggressiveness when error is small and we're near wrap-around
+        // This prevents small errors from causing large overshoots that wrap around
+        if (Math.abs(error) < 50) {
+            // Near wrap-around point (either high end approaching 0, or just past 0)
+            if (normalizedCurrent > (TICKS_PER_REVOLUTION * 0.9) || normalizedCurrent < 50) {
+                // Be more conservative when near wrap-around with small error
+                output *= 0.6; // Reduce output by 40% to prevent overshoot
+            }
         }
 
         spindexerMotor.setPower(output);
@@ -297,19 +350,38 @@ public class OldSpindexerSubsystem {
     }
 
     private double shortestError(int target, int current) {
-        double raw = target - current;
+        // Normalize both target and current to 0-2150 range for consistent calculation
+        int normalizedTarget = normalizeTicks(target);
+        int normalizedCurrent = normalizeTicks(current);
+        
+        double raw = normalizedTarget - normalizedCurrent;
 
-        // FORCE always moving FORWARD from position 2 to 0
-        // when target == 0 AND current is near the high end of the rotation
-        if (target == 0 && current > (TICKS_PER_REVOLUTION * 0.5)) {
-            return (TICKS_PER_REVOLUTION - current); // forward to finish the circle
+        // Special case: When target is 0 and current is near wrap-around (high end)
+        // This prevents the "overshoot and wrap" issue when approaching position 0
+        if (normalizedTarget == 0 && normalizedCurrent > (TICKS_PER_REVOLUTION * 0.5)) {
+            // Calculate forward distance to 0 (completing the circle)
+            double forwardDistance = TICKS_PER_REVOLUTION - normalizedCurrent;
+            
+            // If we're very close to 0 (within last 5% of rotation), use backward path
+            // to prevent overshooting and wrapping around
+            if (normalizedCurrent > (TICKS_PER_REVOLUTION * 0.95)) {
+                // Very close to wrap - use backward to prevent overshoot
+                return -normalizedCurrent; // Small negative error, go backward slightly
+            }
+            
+            // Otherwise, use forward path to complete the circle
+            // This is the normal case: from position 2 (1434) or 3 (2150) to position 0
+            return forwardDistance; // Forward to finish circle
         }
 
         // --- Normal shortest path logic ---
-        if (raw > TICKS_PER_REVOLUTION / 2)
+        // Find the shortest angular distance (accounting for wrap-around)
+        if (raw > TICKS_PER_REVOLUTION / 2.0) {
             raw -= TICKS_PER_REVOLUTION;
-        if (raw < -TICKS_PER_REVOLUTION / 2)
+        }
+        if (raw < -TICKS_PER_REVOLUTION / 2.0) {
             raw += TICKS_PER_REVOLUTION;
+        }
 
         return raw;
     }
