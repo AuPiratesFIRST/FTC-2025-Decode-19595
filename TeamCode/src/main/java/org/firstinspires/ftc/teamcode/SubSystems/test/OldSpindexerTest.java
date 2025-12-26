@@ -90,18 +90,18 @@ public class OldSpindexerTest extends LinearOpMode {
                 spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1], pidCoefficients[2]);
                 sleep(100);
             }
-            if (gamepad1.dpad_right) {
-                pidCoefficients[1] += 0.0001; // Increase I
-                spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1], pidCoefficients[2]);
-                sleep(100);
-            }
-            if (gamepad1.dpad_left) {
-                pidCoefficients[1] -= 0.0001; // Decrease I
-                if (pidCoefficients[1] < 0)
-                    pidCoefficients[1] = 0;
-                spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1], pidCoefficients[2]);
-                sleep(100);
-            }
+//            if (gamepad1.dpad_right) {
+//                pidCoefficients[1] += 0.0001; // Increase I
+//                spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1], pidCoefficients[2]);
+//                sleep(100);
+//            }
+//            if (gamepad1.dpad_left) {
+//                pidCoefficients[1] -= 0.0001; // Decrease I
+//                if (pidCoefficients[1] < 0)
+//                    pidCoefficients[1] = 0;
+//                spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1], pidCoefficients[2]);
+//                sleep(100);
+//            }
             if (gamepad1.right_bumper) {
                 pidCoefficients[2] += 0.001; // Increase D
                 spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1], pidCoefficients[2]);
@@ -155,7 +155,7 @@ public class OldSpindexerTest extends LinearOpMode {
         telemetryM.addData("Graph_Error", error);
 
         telemetryM.addData("Graph_PID_P", pidCoefficients[0]);
-        telemetryM.addData("Graph_PID_I", pidCoefficients[1]);
+//        telemetryM.addData("Graph_PID_I", pidCoefficients[1]);
         telemetryM.addData("Graph_PID_D", pidCoefficients[2]);
 
         telemetryM.update(telemetry);
