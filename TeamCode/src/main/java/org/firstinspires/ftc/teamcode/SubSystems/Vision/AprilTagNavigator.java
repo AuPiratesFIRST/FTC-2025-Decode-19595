@@ -289,14 +289,12 @@ public class AprilTagNavigator {
         }
 
         // Get relative position FROM camera TO tag using FTC SDK coordinate system
-        // detection.ftcPose.x = sideways offset (positive = tag is right of camera
-        // center)
-        // detection.ftcPose.y = forward distance (positive = tag is forward from
-        // camera)
+        // detection.ftcPose.x = sideways offset (positive = tag is right of camera center)
+        // detection.ftcPose.y = forward distance (positive = tag is forward from camera)
         // detection.ftcPose.yaw = tag's rotation around Z axis relative to camera
         // (positive = tag rotated counterclockwise relative to camera)
-        double relativeX = detection.ftcPose.x; // Camera-to-tag X offset
-        double relativeY = detection.ftcPose.y; // Camera-to-tag Y offset (forward)
+        double relativeX = detection.ftcPose.x; // Camera-to-tag X offset (right = positive)
+        double relativeY = detection.ftcPose.y; // Camera-to-tag Y offset (forward = positive)
         double relativeYaw = Math.toRadians(detection.ftcPose.yaw); // Tag rotation relative to camera
 
         // Tag field position
@@ -304,24 +302,32 @@ public class AprilTagNavigator {
         double tagY = tagFieldPos[1];
         double tagHeading = Math.toRadians(tagFieldPos[2]);
 
-        // Rotate the camera-to-tag vector by tag's heading to align with field
-        // coordinates
-        double cosTag = Math.cos(tagHeading);
-        double sinTag = Math.sin(tagHeading);
-
-        double rotatedX = relativeX * cosTag - relativeY * sinTag;
-        double rotatedY = relativeX * sinTag + relativeY * cosTag;
+        // The camera-to-tag vector is in camera coordinates (X=right, Y=forward)
+        // To convert to field coordinates, we need to rotate by (tagHeading - π/2)
+        // because tagHeading is the direction the tag is facing (perpendicular to tag plane)
+        // Field coordinates: X=right (0°), Y=up (90°)
+        // Camera coordinates: X=right (0°), Y=forward (90° relative to camera)
+        
+        // Calculate camera heading relative to field (tag heading - relative yaw gives us camera heading)
+        double cameraHeading = tagHeading - relativeYaw;
+        
+        // Rotate camera-to-tag vector from camera coordinates to field coordinates
+        double cosCam = Math.cos(cameraHeading);
+        double sinCam = Math.sin(cameraHeading);
+        
+        // Rotate the camera-to-tag vector to field coordinates
+        double fieldX = relativeX * cosCam - relativeY * sinCam;
+        double fieldY = relativeX * sinCam + relativeY * cosCam;
 
         // Calculate robot's field position
-        // Since detection vector points FROM camera TO tag, robot position = tag
-        // position - rotated vector
-        double robotX = tagX - rotatedX;
-        double robotY = tagY - rotatedY;
+        // Since detection vector points FROM camera TO tag, robot position = tag position - rotated vector
+        // But camera is offset from robot center, so robot position = tag position - field vector
+        double robotX = tagX - fieldX;
+        double robotY = tagY - fieldY;
 
         // Calculate robot's field heading
-        // If tag is rotated +θ relative to camera, camera is at -θ relative to tag
-        // So: robot_heading = tag_heading - relative_yaw
-        double robotHeading = tagHeading - relativeYaw;
+        // Camera heading = tag heading - relative yaw
+        double robotHeading = cameraHeading;
 
         return new double[] { robotX, robotY, robotHeading };
     }
@@ -596,6 +602,7 @@ public class AprilTagNavigator {
             telemetry.addData("Robot Position", robotPos.getTilePosition());
             telemetry.addData("Robot Tab", robotPos.getTabPosition());
             telemetry.addData("Field Position", "X: %.1f, Y: %.1f", robotPos.getX(), robotPos.getY());
+            telemetry.addData("Expected Start", "Red=D1, Blue=C1");
         }
 
         return true;
