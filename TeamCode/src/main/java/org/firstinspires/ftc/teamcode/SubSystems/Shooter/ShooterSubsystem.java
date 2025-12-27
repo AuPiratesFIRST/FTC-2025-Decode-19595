@@ -28,7 +28,7 @@ public class ShooterSubsystem {
     private double kP = 35.0;
     private double kI = 0.0;     // DO NOT USE for flywheel
     private double kD = 12.0;
-    private double baseKf = 15.5;
+    private double baseKf =  13.2;
 
     // ================= MOTOR =================
     private static final double MOTOR_MAX_RPM = 6000.0;
