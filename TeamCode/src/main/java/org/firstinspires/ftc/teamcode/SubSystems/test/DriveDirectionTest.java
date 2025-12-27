@@ -183,7 +183,7 @@ public class DriveDirectionTest extends LinearOpMode {
 
     private void handleMovementTest() {
         // Get stick inputs (matching your teleop)
-        float forward = gamepad1.left_stick_y;
+        float forward = -gamepad1.left_stick_y;
         float strafe = -gamepad1.left_stick_x;
         float turn = -gamepad1.right_stick_x;
 
