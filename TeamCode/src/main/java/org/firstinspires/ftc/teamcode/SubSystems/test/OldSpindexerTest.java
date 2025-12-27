@@ -28,7 +28,7 @@ public class OldSpindexerTest extends LinearOpMode {
 
     private OldSpindexerSubsystem spindexer;
     private boolean manualMode = false;
-    private double[] pidCoefficients = new double[3];
+    private double[] pidCoefficients = new double[2]; // [kP, kD] - I removed
 
     // PanelsTelemetry manager
     private TelemetryManager telemetryM;
@@ -77,41 +77,29 @@ public class OldSpindexerTest extends LinearOpMode {
                 sleep(200);
             }
 
-            // PID tuning
+            // PID tuning (PD only - I removed)
             if (gamepad1.dpad_up) {
                 pidCoefficients[0] += 0.001; // Increase P
-                spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1], pidCoefficients[2]);
+                spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1]);
                 sleep(100);
             }
             if (gamepad1.dpad_down) {
                 pidCoefficients[0] -= 0.001; // Decrease P
                 if (pidCoefficients[0] < 0)
                     pidCoefficients[0] = 0;
-                spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1], pidCoefficients[2]);
+                spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1]);
                 sleep(100);
             }
-//            if (gamepad1.dpad_right) {
-//                pidCoefficients[1] += 0.0001; // Increase I
-//                spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1], pidCoefficients[2]);
-//                sleep(100);
-//            }
-//            if (gamepad1.dpad_left) {
-//                pidCoefficients[1] -= 0.0001; // Decrease I
-//                if (pidCoefficients[1] < 0)
-//                    pidCoefficients[1] = 0;
-//                spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1], pidCoefficients[2]);
-//                sleep(100);
-//            }
             if (gamepad1.right_bumper) {
-                pidCoefficients[2] += 0.001; // Increase D
-                spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1], pidCoefficients[2]);
+                pidCoefficients[1] += 0.001; // Increase D
+                spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1]);
                 sleep(100);
             }
             if (gamepad1.left_bumper) {
-                pidCoefficients[2] -= 0.001; // Decrease D
-                if (pidCoefficients[2] < 0)
-                    pidCoefficients[2] = 0;
-                spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1], pidCoefficients[2]);
+                pidCoefficients[1] -= 0.001; // Decrease D
+                if (pidCoefficients[1] < 0)
+                    pidCoefficients[1] = 0;
+                spindexer.setPIDCoefficients(pidCoefficients[0], pidCoefficients[1]);
                 sleep(100);
             }
 
@@ -155,8 +143,7 @@ public class OldSpindexerTest extends LinearOpMode {
         telemetryM.addData("Graph_Error", error);
 
         telemetryM.addData("Graph_PID_P", pidCoefficients[0]);
-//        telemetryM.addData("Graph_PID_I", pidCoefficients[1]);
-        telemetryM.addData("Graph_PID_D", pidCoefficients[2]);
+        telemetryM.addData("Graph_PID_D", pidCoefficients[1]);
 
         telemetryM.update(telemetry);
     }

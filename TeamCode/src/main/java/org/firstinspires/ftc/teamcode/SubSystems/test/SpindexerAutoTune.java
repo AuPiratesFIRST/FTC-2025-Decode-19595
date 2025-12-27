@@ -394,7 +394,7 @@ public class SpindexerAutoTune extends LinearOpMode {
         intake.stop();
         
         // Reset PID state to prevent windup
-        spindexer.setPIDCoefficients(0, 0, 0);
+        spindexer.setPIDCoefficients(0, 0);
             // Balls inside
         spindexer.resetPIDOnly(); // what you should add
         
@@ -410,8 +410,8 @@ public class SpindexerAutoTune extends LinearOpMode {
         // Re-enable PID
         spindexer.setPIDEnabled(true);
         
-        // Apply best P value, zero I and D
-        spindexer.setPIDCoefficients(bestP, 0, 0);
+        // Apply best P value, zero D
+        spindexer.setPIDCoefficients(bestP, 0);
         
         // Go to position 0 first to normalize state
         spindexer.goToPositionForCurrentMode(0);
@@ -444,7 +444,7 @@ public class SpindexerAutoTune extends LinearOpMode {
     }
 
     private void finishTuning() {
-        spindexer.setPIDCoefficients(bestP, bestI, bestD);
+        spindexer.setPIDCoefficients(bestP, bestD);
         currentPhase = TuningPhase.COMPLETE;
     }
 
@@ -478,8 +478,8 @@ public class SpindexerAutoTune extends LinearOpMode {
         // Ensure PID is enabled
         spindexer.setPIDEnabled(true);
         
-        // Reset PID state - ensure clean slate
-        spindexer.setPIDCoefficients(currentP, currentI, currentD);
+        // Reset PID state - ensure clean slate (I removed, always 0)
+        spindexer.setPIDCoefficients(currentP, currentD);
         
         // Start at position 0, will cycle through 0→1→2
         currentPositionIndex = 0;

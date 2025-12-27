@@ -287,7 +287,7 @@ public class OldSpindexerSubsystem {
         return targetPosition;
     }
 
-    public void setPIDCoefficients(double kP, double kI, double kD) {
+    public void setPIDCoefficients(double kP, double kD) {
         this.kP = kP;
         this.kD = kD;
     }
