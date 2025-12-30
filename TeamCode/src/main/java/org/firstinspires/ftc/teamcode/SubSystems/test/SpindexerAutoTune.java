@@ -43,25 +43,31 @@ public class SpindexerAutoTune extends LinearOpMode {
 
     private TuningPhase currentPhase = TuningPhase.IDLE;
 
-    // PID values and limits
-    private double bestP = 0.01;
-    private double bestD = 0.02;
+    // Current working PID values (starting point for fine-tuning)
+    // These are the values that work well but have initial oscillations
+    private static final double STARTING_P = 0.006;  // Current working kP
+    private static final double STARTING_D = 0.007;  // Current working kD
+    
+    // PID values and limits - starting from current working values
+    private double bestP = STARTING_P;
+    private double bestD = STARTING_D;
     private double bestI = 0.0;
-    private double currentP = 0.001;
-    private double currentD = 0.0;
+    private double currentP = STARTING_P;
+    private double currentD = STARTING_D;
     private double currentI = 0.0;
 
-    // WPI Exponential Search: Multiply by 2 until too large, then binary search
-    // This is much faster than linear increments
-    private static final double P_MIN = 0.001;
-    private static final double P_MAX = 0.05;
+    // Fine-tuning ranges centered around current working values
+    // Using ±50% range for fine-tuning (can adjust if needed)
+    private static final double P_MIN = STARTING_P * 0.5;  // 0.003
+    private static final double P_MAX = STARTING_P * 1.5;  // 0.009
     private double pLow = P_MIN;      // Lower bound for binary search
     private double pHigh = P_MAX;     // Upper bound for binary search
     private boolean pOscillating = false;  // Track if we've seen oscillations
     private boolean pInBinarySearch = false; // Are we in binary search phase?
 
-    private static final double D_MIN = 0.0;
-    private static final double D_MAX = 0.15;
+    // Fine-tuning D around current working value
+    private static final double D_MIN = STARTING_D * 0.5;  // 0.0035
+    private static final double D_MAX = STARTING_D * 1.5;  // 0.0105
     private double dLow = D_MIN;      // Lower bound for binary search
     private double dHigh = D_MAX;     // Upper bound for binary search
     private boolean dJittering = false;  // Track if we've seen jittering
@@ -193,9 +199,12 @@ public class SpindexerAutoTune extends LinearOpMode {
         
         // Step 4: Ready to start tuning
         telemetryM.addLine("Spindexer Auto PID Tuner");
+        telemetryM.addLine("FINE-TUNING MODE");
+        telemetryM.addLine("Starting from: kP=" + STARTING_P + ", kD=" + STARTING_D);
+        telemetryM.addLine("Search range: P[" + P_MIN + " - " + P_MAX + "], D[" + D_MIN + " - " + D_MAX + "]");
         telemetryM.addLine("Encoder zeroed: " + spindexer.getCurrentPosition());
         telemetryM.addLine("");
-        telemetryM.addLine("A = Start");
+        telemetryM.addLine("A = Start Fine-Tuning");
         telemetryM.addLine("B = Skip Phase");
         telemetryM.addLine("X = Reset");
         telemetryM.addLine("Y = Finish");
@@ -248,11 +257,12 @@ public class SpindexerAutoTune extends LinearOpMode {
     }
 
     // Start tuning process
-    // WPI Procedure: Set K_p, K_i, K_d to zero, then increase K_p until oscillations
+    // Fine-tuning: Start from current working values and search nearby
     private void startTuning() {
         currentPhase = TuningPhase.TUNING_P;
-        currentP = P_MIN;
-        currentD = 0;
+        // Start from current working values (not zero)
+        currentP = STARTING_P;
+        currentD = STARTING_D;
         currentI = 0;
         pLow = P_MIN;
         pHigh = P_MAX;
@@ -263,6 +273,9 @@ public class SpindexerAutoTune extends LinearOpMode {
         dJittering = false;
         dInBinarySearch = false;
         bestMetrics.reset();
+        // Initialize best values to starting values
+        bestP = STARTING_P;
+        bestD = STARTING_D;
         startTest();
     }
 
@@ -270,31 +283,64 @@ public class SpindexerAutoTune extends LinearOpMode {
     // Uses WPI exponential search: multiply by 2 until oscillations/jitter, then binary search
     private void continueTuning() {
         if (currentPhase == TuningPhase.TUNING_P) {
-            // WPI: Increase K_p until oscillations start, then reduce until they stop
+            // Fine-tuning: Start from current value and search nearby
+            // Use smaller increments for fine-tuning (±10% steps initially, then binary search)
             if (!pOscillating && !pInBinarySearch) {
-                // Exponential search phase: multiply by 2
+                // Fine-tuning search: test values around starting point
+                // First test starting value, then test ±10%, ±20%, etc.
                 double previousP = currentP;
-                currentP *= 2.0;
-                if (currentP > P_MAX) {
-                    currentP = P_MAX;
-                    // If we hit max without oscillations, P tuning might be complete
-                    if (!metrics.oscillating && metrics.steadyStateError <= POSITION_TOLERANCE) {
-                        currentPhase = TuningPhase.LOADING_BALLS;
-                        prepareForBallLoading();
-                        return;
+                
+                // Calculate next test value: move away from starting point
+                double stepSize = STARTING_P * 0.1; // 10% steps
+                double distanceFromStart = Math.abs(currentP - STARTING_P);
+                
+                if (distanceFromStart == 0) {
+                    // First test: try slightly lower (reduce oscillations)
+                    currentP = STARTING_P * 0.9; // 10% lower
+                } else if (currentP < STARTING_P) {
+                    // Testing lower values: continue decreasing
+                    currentP -= stepSize;
+                    if (currentP < P_MIN) {
+                        // Reached minimum, try higher values
+                        currentP = STARTING_P * 1.1; // 10% higher
+                    }
+                } else {
+                    // Testing higher values: continue increasing
+                    currentP += stepSize;
+                    if (currentP > P_MAX) {
+                        // Reached maximum, switch to binary search
+                        pInBinarySearch = true;
+                        // Set bounds based on what we found
+                        if (metrics.oscillating) {
+                            // If current value oscillates, best is lower
+                            pHigh = previousP;
+                            pLow = P_MIN;
+                        } else {
+                            // If current value is good, best might be between start and current
+                            pLow = STARTING_P;
+                            pHigh = previousP;
+                        }
+                        currentP = (pLow + pHigh) / 2.0;
                     }
                 }
-                // Check if we found oscillations in last test (metrics from previous test)
-                if (metrics.oscillating) {
+                
+                // Check if we found oscillations in last test
+                if (metrics.oscillating && !pOscillating) {
                     pOscillating = true;
-                    pHigh = previousP; // Previous P was the last good one
-                    pLow = previousP / 2.0; // One step before that
+                    // If we found oscillations, best value is before this
+                    if (currentP > STARTING_P) {
+                        pHigh = previousP;
+                        pLow = P_MIN;
+                    } else {
+                        pHigh = STARTING_P;
+                        pLow = previousP;
+                    }
                     currentP = previousP; // Use the last good P
                     pInBinarySearch = true; // Switch to binary search
                 }
             } else if (pInBinarySearch) {
                 // Binary search phase: find optimal P between pLow and pHigh
-                if (pHigh - pLow < 0.0005) { // Convergence threshold
+                if (pHigh - pLow < 0.0001) { // Fine-tuning convergence threshold
                     // P tuning complete - use best value found
                     currentPhase = TuningPhase.LOADING_BALLS;
                     prepareForBallLoading();
@@ -311,35 +357,62 @@ public class SpindexerAutoTune extends LinearOpMode {
             // This phase is handled by button press in main loop
             // When user presses A, it will call startDITuning()
         } else if (currentPhase == TuningPhase.TUNING_D) {
-            // WPI: Increase K_d as much as possible without introducing jittering
+            // Fine-tuning D: Start from current value and search nearby
             if (!dJittering && !dInBinarySearch) {
-                // Exponential search phase: multiply by 2
+                // Fine-tuning search: test values around starting point
                 double previousD = currentD;
-                if (currentD == 0) {
-                    currentD = 0.001; // Start from small non-zero value
+                
+                // Calculate next test value: move away from starting point
+                double stepSize = STARTING_D * 0.1; // 10% steps
+                double distanceFromStart = Math.abs(currentD - STARTING_D);
+                
+                if (distanceFromStart == 0) {
+                    // First test: try slightly higher (better damping)
+                    currentD = STARTING_D * 1.1; // 10% higher
+                } else if (currentD > STARTING_D) {
+                    // Testing higher values: continue increasing
+                    currentD += stepSize;
+                    if (currentD > D_MAX) {
+                        // Reached maximum, try lower values
+                        currentD = STARTING_D * 0.9; // 10% lower
+                    }
                 } else {
-                    currentD *= 2.0;
-                }
-                if (currentD > D_MAX) {
-                    currentD = D_MAX;
-                    // If we hit max without jittering, D tuning might be complete
-                    if (!metrics.jittering && metrics.steadyStateError <= POSITION_TOLERANCE) {
-                        currentPhase = TuningPhase.TUNING_I;
-                        currentD = bestD; // Use best D found
-                        currentI = I_MIN;
+                    // Testing lower values: continue decreasing
+                    currentD -= stepSize;
+                    if (currentD < D_MIN) {
+                        // Reached minimum, switch to binary search
+                        dInBinarySearch = true;
+                        // Set bounds based on what we found
+                        if (metrics.jittering) {
+                            // If current value jitters, best is lower
+                            dHigh = previousD;
+                            dLow = D_MIN;
+                        } else {
+                            // If current value is good, best might be between start and current
+                            dLow = STARTING_D;
+                            dHigh = previousD;
+                        }
+                        currentD = (dLow + dHigh) / 2.0;
                     }
                 }
+                
                 // Check if we found jittering in last test
-                if (metrics.jittering) {
+                if (metrics.jittering && !dJittering) {
                     dJittering = true;
-                    dHigh = previousD; // Previous D was the last good one
-                    dLow = (previousD == 0) ? 0 : previousD / 2.0; // One step before that
+                    // If we found jittering, best value is before this
+                    if (currentD > STARTING_D) {
+                        dHigh = previousD;
+                        dLow = D_MIN;
+                    } else {
+                        dHigh = STARTING_D;
+                        dLow = previousD;
+                    }
                     currentD = previousD; // Use the last good D
                     dInBinarySearch = true; // Switch to binary search
                 }
             } else if (dInBinarySearch) {
                 // Binary search phase: find optimal D between dLow and dHigh
-                if (dHigh - dLow < 0.001) { // Convergence threshold
+                if (dHigh - dLow < 0.0001) { // Fine-tuning convergence threshold
                     // D tuning complete - move to I (if needed)
                     currentPhase = TuningPhase.TUNING_I;
                     currentD = bestD; // Use best D found

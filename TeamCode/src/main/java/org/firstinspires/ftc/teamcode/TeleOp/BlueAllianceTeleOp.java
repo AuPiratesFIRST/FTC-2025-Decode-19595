@@ -2,6 +2,7 @@ package org.firstinspires.ftc.teamcode.TeleOp;
 
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.util.ElapsedTime;
 import org.firstinspires.ftc.robotcore.external.JavaUtil;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 
@@ -54,9 +55,17 @@ public class BlueAllianceTeleOp extends LinearOpMode {
     private int spindexerPositionIndex = 0;
     private boolean intakeMode = true; // true = Intake, false = Outtake
     private boolean spindexerIsMoving = false;
-    private boolean shooterNeedsToSpinUp = false;
+    private boolean shooterNeedsToSpinUp = true;
     private boolean ballSettling = false;
     private boolean manualControlMode = false; // true = Manual, false = Automated
+    
+    // Shooter control flags - separate from automated sequence
+    private boolean shooterManuallyControlled = false; // Track if shooter is manually controlled
+    private int shotNumber = 0;
+    
+    // Timers
+    private ElapsedTime actionTimer; // Used for shooter stability
+    private ElapsedTime shotTimer;   // Used for shot-to-shot delays
     
     // Button state tracking
     private boolean spindexerPressLast = false;
@@ -64,16 +73,13 @@ public class BlueAllianceTeleOp extends LinearOpMode {
     private boolean rbPressedLast = false;
     private boolean yPressedLast = false;
     private boolean xPressedLast = false; // Manual control toggle
-    private boolean b2PressedLast = false; // Funnel toggle (Gamepad 2 B)
-    
-    // Drive speed toggle
-    private double driveSpeed = 1.0;
+    private boolean dpadLeftLast = false;
+    private boolean dpadRightLast = false;
     private boolean aPressedLast = false;
     private boolean bPressedLast = false;
     
-    // Inverse direction toggle (for when controller is at back of robot)
-    private boolean inverseDirection = false;
-    private boolean dpadUpLast = false;
+    // Drive speed toggle
+    private double driveSpeed = 1.0;
 
     // Spindexer positions (inspired by Decode20252026 but using subsystem)
     private static final double TICKS_PER_REVOLUTION = 2150.8;
@@ -96,11 +102,19 @@ public class BlueAllianceTeleOp extends LinearOpMode {
         normalizePosition(-434)   // 1716
     };
     
-    // Ball settling: 0.25" counterclockwise
-    private static final int BALL_SETTLING_TICKS = 34;
-    
-    // Shooter power
-    private static final double SHOOTER_POWER = 0.87; // 70% = ~4200 RPM
+    // === AUTO-ALIGNMENT CONSTANTS ===
+    private static final double DESIRED_SHOOTING_DISTANCE = 134;
+    private static final double DESIRED_SHOOTING_Angle = 21;
+    private static final double KP_STRAFE = 0.03;
+    private static final double KP_FORWARD = 0.03;
+    private static final double KP_ROT = 0.015;
+
+    private static final double MAX_AUTO_POWER = 0.40;
+    private static final double POSITION_DEADBAND = 0.75;
+    private static final double ANGLE_DEADBAND_DEG = 1.5;
+
+    // Shooter RPM target
+    private static final double SHOOTER_TARGET_RPM = 5220.0;
 
     // Alliance configuration
     private static final boolean IS_BLUE_ALLIANCE = true;
@@ -115,6 +129,10 @@ public class BlueAllianceTeleOp extends LinearOpMode {
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
 //        funnel = new FunnelSubsystem(hardwareMap, telemetry);
+        
+        // Initialize Timers
+        shotTimer = new ElapsedTime();
+        actionTimer = new ElapsedTime();
 
         telemetry.addData("Status", "Initialized - Blue Alliance");
         telemetry.addData("Target Goal", "Blue Alliance (Tag 20)");
@@ -129,7 +147,9 @@ public class BlueAllianceTeleOp extends LinearOpMode {
             // ==================== GAMEPAD 2: OPERATOR CONTROLS ====================
             handleIntake();
             handleShooter();
+            shooter.updateVoltageCompensation();
             handleSpindexer();
+            enforceShooterSpindexerSafety();
 //            handleFunnel();
             handleAprilTagAlignment();
 
@@ -174,13 +194,10 @@ public class BlueAllianceTeleOp extends LinearOpMode {
         
         double denominator = JavaUtil.maxOfList(JavaUtil.createListWith(0.5, 0.5 + Math.abs(turn)));
 
-        // Drive speed toggle
-        boolean a = gamepad1.a;
-        boolean b = gamepad1.b;
-        if (a && !aPressedLast) driveSpeed = 1.0;
-        if (b && !bPressedLast) driveSpeed = 0.5;
-        aPressedLast = a;
-        bPressedLast = b;
+        if (gamepad1.a && !aPressedLast) driveSpeed = 1.0;
+        if (gamepad1.b && !bPressedLast) driveSpeed = 0.5;
+        aPressedLast = gamepad1.a;
+        bPressedLast = gamepad1.b;
 
         // Store drive values for use in alignment (if not aligning)
         // Alignment will override turn when Y button is held
@@ -211,10 +228,13 @@ public class BlueAllianceTeleOp extends LinearOpMode {
     private void handleShooter() {
         boolean rb = gamepad2.right_bumper;
         if (rb && !rbPressedLast) {
+            shooterManuallyControlled = true;
+            shooterNeedsToSpinUp = false;
             if (shooter.getTargetRPM() > 0) {
                 shooter.stop();
+                shooterManuallyControlled = false;
             } else {
-                shooter.setPower(SHOOTER_POWER);
+                shooter.setTargetRPM(SHOOTER_TARGET_RPM);
             }
         }
         rbPressedLast = rb;
@@ -226,9 +246,14 @@ public class BlueAllianceTeleOp extends LinearOpMode {
         if (x && !xPressedLast) {
             manualControlMode = !manualControlMode;
             if (manualControlMode) {
-                // Switch to manual mode - stop automated movement
+                // Switch to manual mode - stop automated movement and disable PID
                 spindexerIsMoving = false;
                 ballSettling = false;
+                spindexer.setPIDEnabled(false);
+                spindexer.setManualPower(0); // Stop any current movement
+            } else {
+                // Switch back to automated mode - re-enable PID
+                spindexer.setPIDEnabled(true);
             }
         }
         xPressedLast = x;
@@ -253,92 +278,73 @@ public class BlueAllianceTeleOp extends LinearOpMode {
     }
 
     private void handleManualSpindexer() {
-        // Manual position selection (D-Pad Left/Right)
-        boolean dpadLeft = gamepad2.dpad_left;
-        boolean dpadRight = gamepad2.dpad_right;
-        
-        if (dpadLeft && !spindexerIsMoving) {
-            spindexerPositionIndex = (spindexerPositionIndex - 1 + 3) % 3; // Move backward
-            spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
-            spindexerIsMoving = true;
-        }
-        if (dpadRight && !spindexerIsMoving) {
-            spindexerPositionIndex = (spindexerPositionIndex + 1) % 3; // Move forward
-            spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
-            spindexerIsMoving = true;
-        }
-
-        // Manual power control (Right Stick Y) - overrides position control
         float manualPower = -gamepad2.right_stick_y;
         if (Math.abs(manualPower) > 0.1) {
-            spindexer.setManualPower(manualPower * 0.5); // Scale down for safety
-            spindexerIsMoving = false; // Disable position tracking when manually controlling
-        } else if (!spindexerIsMoving) {
-            // If not manually controlling and not moving to position, stop motor
+            spindexer.setManualPower(manualPower * OldSpindexerSubsystem.getRecommendedManualPowerMultiplier());
+            spindexerIsMoving = false;
+        } else {
             spindexer.setManualPower(0);
         }
 
-        // Update spindexer PID control (for position mode)
+        if (gamepad2.dpad_left && !dpadLeftLast && !spindexerIsMoving) {
+            spindexerPositionIndex = (spindexerPositionIndex - 1 + 3) % 3;
+            spindexer.setPIDEnabled(true); // Re-enable PID for position control
+            spindexer.goToPosition(spindexerPositionIndex);
+            spindexerIsMoving = true;
+        }
+        if (gamepad2.dpad_right && !dpadRightLast && !spindexerIsMoving) {
+            spindexerPositionIndex = (spindexerPositionIndex + 1) % 3;
+            spindexer.setPIDEnabled(true); // Re-enable PID for position control
+            spindexer.goToPosition(spindexerPositionIndex);
+            spindexerIsMoving = true;
+        }
+        dpadLeftLast = gamepad2.dpad_left;
+        dpadRightLast = gamepad2.dpad_right;
+
         if (spindexerIsMoving) {
             spindexer.update();
-            if (spindexer.isAtPosition()) {
-                spindexerIsMoving = false;
-            }
+            if (spindexer.isAtPosition()) spindexerIsMoving = false;
         }
     }
 
     private void handleAutomatedSpindexer() {
-        // Update spindexer PID control (must be called every loop)
         spindexer.update();
 
-        // Check if spindexer reached target position
-        if (spindexerIsMoving) {
-            if (spindexer.isAtPosition()) {
-                spindexerIsMoving = false;
-
-                if (intakeMode) {
-                    // INTAKE MODE: Start ball settling movement (counterclockwise)
-                    // Use manual power control for small settling movement
-                    // Note: This is a simplified approach - you may need to adjust
-                    ballSettling = true;
-                    // For now, we'll skip settling and mark as ready
-                    // In a full implementation, you'd use setManualPower() for settling
-                    ballSettling = false; // Simplified - remove this line if implementing full settling
-                } else {
-                    // OUTTAKE MODE: Start shooter spin-up
-                    shooter.setPower(SHOOTER_POWER);
-                    shooterNeedsToSpinUp = true;
-                }
+        if (spindexerIsMoving && spindexer.isAtPosition()) {
+            spindexerIsMoving = false;
+            if (!intakeMode && !shooterManuallyControlled) {
+                shooter.setTargetRPM(SHOOTER_TARGET_RPM);
+                shooterNeedsToSpinUp = true;
+                actionTimer.reset();
+                shotTimer.reset();
             }
         }
 
-        // Check if ball settling is complete (if implemented)
-        if (ballSettling) {
-            // Settling logic would go here
-            // For now, simplified version
-            ballSettling = false;
-        }
-
-        // Check if shooter reached target RPM
-        if (shooterNeedsToSpinUp) {
+        if (shooterNeedsToSpinUp && !shooterManuallyControlled) {
             if (shooter.isAtTargetRPM()) {
-                shooterNeedsToSpinUp = false;
+                long stabilityDelay = (shotNumber == 0) ? 300 : 200;
+                if (actionTimer.milliseconds() > stabilityDelay) {
+                    shooterNeedsToSpinUp = false;
+                }
+            } else {
+                actionTimer.reset();
             }
         }
 
-        // Spindexer advance button (A) - only in automated mode
         boolean spPress = gamepad2.a;
-        boolean canMove = !spindexerIsMoving && !ballSettling &&
-                (!shooterNeedsToSpinUp || shooter.isAtTargetRPM());
+        long minDelayBetweenShots = (!intakeMode && spindexerPositionIndex == 0) ? 400 : 250;
+        
+        boolean canMove = !spindexerIsMoving &&
+                (!shooterNeedsToSpinUp || shooter.isAtTargetRPM() || shooterManuallyControlled) &&
+                (shotTimer.milliseconds() > minDelayBetweenShots || intakeMode);
 
         if (spPress && !spindexerPressLast && canMove) {
-            // Advance to next position
+            if (!intakeMode) shotNumber = spindexerPositionIndex;
             spindexerPositionIndex = (spindexerPositionIndex + 1) % 3;
-            
-            // Use subsystem method that automatically selects position based on current mode
-            // This uses intake positions in intake mode, outtake positions in outtake mode
             spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
             spindexerIsMoving = true;
+            actionTimer.reset();
+            shotTimer.reset();
         }
         spindexerPressLast = spPress;
     }
@@ -349,68 +355,45 @@ public class BlueAllianceTeleOp extends LinearOpMode {
 //        if (b && !b2PressedLast) {
 //            funnel.toggle();
 //        }
-//        b2PressedLast = b;
+//        bPressedLast = b;
 //    }
 
-    private void handleAprilTagAlignment() {
-        boolean y = gamepad2.y;
-
-        // Continuous alignment when button is held
-        if (y) {
-            // Update robot position from AprilTags
-            aprilTag.updateRobotPositionFromAllianceGoals();
-            AprilTagDetection blueGoal = aprilTag.getBestAllianceGoalDetection();
-
-            if (blueGoal != null && blueGoal.id == TARGET_TAG_ID) {
-                // Calculate left/right offset to determine alignment
-                double xOffset = blueGoal.ftcPose.x;  // left/right offset in inches
-
-                // Get current forward/strafe from gamepad (INVERTED - controller at back)
-                float forward = gamepad1.left_stick_y;  // INVERTED
-                float strafe = -gamepad1.left_stick_x;  // INVERTED
-                double denominator = JavaUtil.maxOfList(JavaUtil.createListWith(0.5, 0.5));
-
-                // Proportional control on X offset (left/right)
-                double kP = 0.02;  // tune 0.015–0.025
-                double turnPower = xOffset * kP;
-
-                // Deadband to prevent jitter
-                if (Math.abs(xOffset) < 0.5) turnPower = 0;
-
-                turnPower = Math.max(-0.4, Math.min(0.4, turnPower));
-
-                // Apply alignment turn while preserving forward/strafe movement
-                drive.drive(
-                        (forward / denominator) * driveSpeed,
-                        (strafe / denominator) * driveSpeed,
-                        -turnPower
-                );
-
-                telemetry.addData("Alignment", "X offset: %.2f, turn: %.2f", xOffset, turnPower);
-            } else {
-                telemetry.addData("Alignment", "Red Goal (Tag 24) not detected");
+    private void enforceShooterSpindexerSafety() {
+        if (spindexer.isMoving() || !spindexer.isAtPosition()) {
+            if (shooter.getTargetRPM() > 0 && !shooterManuallyControlled) {
+                shooter.stop();
+                shooterNeedsToSpinUp = true;
             }
         }
-        yPressedLast = y;
+    }
+
+    private void handleAprilTagAlignment() {
+        if (gamepad2.y) {
+            aprilTag.updateRobotPositionFromAllianceGoals();
+            AprilTagDetection tag = aprilTag.getBestAllianceGoalDetection();
+
+            if (tag == null || tag.id != TARGET_TAG_ID) {
+                drive.drive(0, 0, 0);
+                return;
+            }
+
+            if (!shooterManuallyControlled) shooter.setTargetRPM(SHOOTER_TARGET_RPM);
+
+            double[] corrections = aprilTag.calculateAlignmentCorrections(
+                    tag, DESIRED_SHOOTING_DISTANCE, DESIRED_SHOOTING_Angle,
+                    POSITION_DEADBAND, POSITION_DEADBAND, ANGLE_DEADBAND_DEG,
+                    KP_STRAFE, KP_FORWARD, KP_ROT, MAX_AUTO_POWER);
+
+            if (corrections != null) {
+                drive.drive(corrections[1], corrections[0], corrections[2]);
+            }
+        }
     }
 
     private void updateTelemetry() {
-        telemetry.addData("=== BLUE ALLIANCE TELEOP ===", "");
-        telemetry.addData("Drive Speed", driveSpeed);
-        telemetry.addData("Inverse Direction", inverseDirection ? "ON (D-Pad Up)" : "OFF");
-        telemetry.addData("Spindexer Control", manualControlMode ? "MANUAL" : "AUTOMATED");
-        telemetry.addData("Spindexer Mode", intakeMode ? "INTAKE" : "OUTTAKE");
-        telemetry.addData("Spindexer Position", spindexerPositionIndex);
-        telemetry.addData("Spindexer Status", spindexerIsMoving ? "MOVING" :
-                (ballSettling ? "SETTLING" :
-                (shooterNeedsToSpinUp ? "WAITING FOR RPM" : "READY")));
-        telemetry.addData("Shooter RPM", "%.0f / %.0f", shooter.getCurrentRPM(), shooter.getTargetRPM());
-        telemetry.addData("Shooter At RPM", shooter.isAtTargetRPM());
-//        telemetry.addData("Funnel Status", funnel.isExtended() ? "EXTENDED" : "RETRACTED");
-        
-        // AprilTag info
-        aprilTag.updateDECODELocalizationTelemetry();
-        
+        telemetry.addData("Spindexer", manualControlMode ? "MANUAL" : "AUTO");
+        telemetry.addData("Mode", intakeMode ? "INTAKE" : "OUTTAKE");
+        telemetry.addData("RPM", "%.0f / %.0f", shooter.getCurrentRPM(), shooter.getTargetRPM());
         telemetry.update();
     }
 
