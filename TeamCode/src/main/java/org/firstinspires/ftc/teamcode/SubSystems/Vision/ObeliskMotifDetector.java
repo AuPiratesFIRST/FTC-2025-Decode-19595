@@ -48,7 +48,7 @@
              * Call repeatedly (non-blocking). Returns true if the motif was found/updated on this call.
              */
             public boolean update() {
-                List<AprilTagDetection> detections = april.getAllDetections();
+                 List<AprilTagDetection> detections = april.getRawDetections(); 
                 if (detections == null || detections.isEmpty()) {
                     telemetry.addData("Obelisk", "No detections");
                     return false;
