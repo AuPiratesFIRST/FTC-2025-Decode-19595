@@ -4,6 +4,7 @@ import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.teamcode.SubSystems.Sensors.ColorSensorSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
+import org.firstinspires.ftc.teamcode.SubSystems.Funnel.FunnelSubsystem;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +28,7 @@ public class AutoOuttakeController {
     private final ColorSensorSubsystem colorSensorSubsystem;
     private final OldSpindexerSubsystem spindexer;
     private final ShooterSubsystem shooter;
+    private final FunnelSubsystem funnel;
     private final Telemetry telemetry;
 
     // Configurable
@@ -34,6 +36,12 @@ public class AutoOuttakeController {
     private double targetShooterRPM = 5200;
     private long shooterTimeoutMs = 4000;
     private long cooldownMs = 1500;
+    private long funnelPushDurationMs = 150;  // Time to hold funnel extended (cam flip time)
+    private long jamDetectionTimeoutMs = 500; // Time before considering funnel jammed
+    
+    // Jam detection state
+    private long funnelExtendStartTime = 0;
+    private boolean jamRecoveryInProgress = false;
 
     private State state = State.IDLE;
     private boolean autoEnabled = true;
@@ -45,10 +53,12 @@ public class AutoOuttakeController {
                                  ArtifactColor[] motif,
                                  OldSpindexerSubsystem spindexer,
                                  ShooterSubsystem shooter,
+                                 FunnelSubsystem funnel,
                                  Telemetry telemetry) {
         this.colorSensorSubsystem = colorSensorSubsystem;
         this.spindexer = spindexer;
         this.shooter = shooter;
+        this.funnel = funnel;
         this.telemetry = telemetry;
         setMotif(motif);
     }
@@ -102,6 +112,8 @@ public class AutoOuttakeController {
                 // CRITICAL SAFETY: Stop shooter when spindexer is moving
                 if (spindexer.isMoving() || !spindexer.isAtPosition()) {
                     shooter.stop();
+                    funnel.retract(); // Keep funnel clear while spindexer moves
+                    jamRecoveryInProgress = false; // Reset jam detection during movement
                 }
                 
                 if (outtakePerformed >= outtakeCount) {
@@ -109,39 +121,56 @@ public class AutoOuttakeController {
                     stateStartTime = System.currentTimeMillis();
                     spindexer.setIntakeMode(true);
                     shooter.stop();
+                    funnel.retract(); // Clear for next cycle
                     break;
                 }
 
-                // Wait for spindexer to reach position before moving to next
+                // Wait for spindexer to reach position before firing
                 // CRITICAL: Shooter must be stopped while spindexer is moving
                 if (spindexer.isMoving() || !spindexer.isAtPosition()) {
                     shooter.stop(); // Keep shooter stopped during movement
+                    funnel.retract(); // Keep funnel clear
                 } else if (!spindexer.isSettling() && spindexer.isAtPosition()) {
-                    // Spindexer is at position - check if we've waited long enough for ball to fire
                     long timeSinceLastMove = System.currentTimeMillis() - stateStartTime;
-                    if (timeSinceLastMove > 400) { // 400ms delay after position reached for ball to fire
-                        // Ball should have fired - move to next position
-                        // Stop shooter before moving spindexer
-                        shooter.stop();
-                        int nextIndex = (spindexer.getIndex() + 1) % 3;
-                        spindexer.goToPositionForCurrentMode(nextIndex);
-                        stateStartTime = System.currentTimeMillis(); // Reset timer for next position
-                    } else if (timeSinceLastMove > 200 && shooter.getTargetRPM() == 0) {
-                        // Restart shooter after 200ms delay (spindexer has settled)
+                    
+                    // Check for jam: funnel extended too long without ball clearing
+                    if (funnel.isExtended() && (timeSinceLastMove - funnelExtendStartTime) > jamDetectionTimeoutMs) {
+                        if (telemetry != null) telemetry.addData("AutoOuttake", "JAM DETECTED - Attempting recovery");
+                        jamRecoveryInProgress = true;
+                        funnel.retract();
+                        // Jiggle spindexer to clear jam
+                        if ((timeSinceLastMove - funnelExtendStartTime) > (jamDetectionTimeoutMs + 200)) {
+                            spindexer.goToPositionForCurrentMode((spindexer.getIndex() + 1) % 3);
+                            jamRecoveryInProgress = false;
+                        }
+                    }
+                    
+                    // Normal firing sequence: wait, extend funnel, wait, retract, move to next
+                    if (timeSinceLastMove < 200) {
+                        // Wait 200ms for spindexer to fully settle
                         shooter.setTargetRPM(targetShooterRPM);
+                    } else if (timeSinceLastMove < 200 + funnelPushDurationMs && !jamRecoveryInProgress) {
+                        // Extend funnel to push ball
+                        if (!funnel.isExtended()) {
+                            funnel.extend();
+                            funnelExtendStartTime = System.currentTimeMillis();
+                        }
+                    } else if (timeSinceLastMove >= (200 + funnelPushDurationMs) && !jamRecoveryInProgress) {
+                        // Retract funnel and prepare for next position
+                        funnel.retract();
+                        
+                        // Move to next position
+                        if (timeSinceLastMove >= (200 + funnelPushDurationMs + 100)) {
+                            shooter.stop();
+                            int nextIndex = (spindexer.getIndex() + 1) % 3;
+                            spindexer.goToPositionForCurrentMode(nextIndex);
+                            outtakePerformed++;
+                            stateStartTime = System.currentTimeMillis();
+                        }
                     }
                 }
 
                 spindexer.update();
-
-                // Count shot as complete when spindexer reaches position and delay has passed
-                if (!spindexer.isMoving() && !spindexer.isSettling()) {
-                    long now = System.currentTimeMillis();
-                    if (now - stateStartTime > 400) { // Increased delay: 400ms after position reached
-                        outtakePerformed++;
-                        stateStartTime = now;
-                    }
-                }
                 break;
 
             case COOLDOWN:

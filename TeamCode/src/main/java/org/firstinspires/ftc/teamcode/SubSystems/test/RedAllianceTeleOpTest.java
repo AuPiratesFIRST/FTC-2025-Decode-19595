@@ -18,6 +18,7 @@ import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
 import org.firstinspires.ftc.teamcode.SubSystems.Vision.ObeliskMotifDetector;
 import org.firstinspires.ftc.teamcode.SubSystems.Scoring.AutoOuttakeController;
 import org.firstinspires.ftc.teamcode.SubSystems.Scoring.ArtifactColor;
+import org.firstinspires.ftc.teamcode.SubSystems.Funnel.FunnelSubsystem;
 
 /**
  * RED ALLIANCE TEST VERSION - FIXED
@@ -45,6 +46,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private ColorSensorSubsystem colorSensorSubsystem;
     private ObeliskMotifDetector obeliskDetector;
     private NormalizedColorSensor colorSensor;
+    private FunnelSubsystem funnel;
     private AutoOuttakeController autoOuttake;
 
     // State Variables
@@ -84,6 +86,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
+        funnel = new FunnelSubsystem(hardwareMap, telemetry);
         
         // Initialize Timers - FIXED: Both timers now initialized
         shotTimer = new ElapsedTime();
@@ -125,7 +128,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         }
 
         if (colorSensorSubsystem != null) {
-            autoOuttake = new AutoOuttakeController(colorSensorSubsystem, motif, spindexer, shooter, telemetry);
+            autoOuttake = new AutoOuttakeController(colorSensorSubsystem, motif, spindexer, shooter, funnel, telemetry);
             autoOuttake.setScoreThreshold(6);
             autoOuttake.setTargetShooterRPM(SHOOTER_TARGET_RPM);
         }
@@ -163,6 +166,12 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         if (gamepad1.b && !bPressedLast) driveSpeed = 0.5;
         aPressedLast = gamepad1.a;
         bPressedLast = gamepad1.b;
+
+        // Reset IMU heading to 0° (emergency recalibration)
+        if (gamepad1.start) {
+            drive.resetHeading();
+            telemetry.addData("IMU", "RESET - Heading now 0°");
+        }
 
         // Maintain heading if Y is held (no turn)
         float currentTurn = gamepad2.y ? 0 : turn;
@@ -259,6 +268,11 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     }
 
     private void handleAutomatedSpindexer() {
+        // Safety: Prevent manual control from interfering with auto-outtake sequence
+        if (autoOuttake != null && autoOuttake.getState() != AutoOuttakeController.State.IDLE) {
+            return; // Let the auto-outtake finish its sequence before allowing manual button steps
+        }
+        
         spindexer.update();
 
         if (spindexerIsMoving && spindexer.isAtPosition()) {

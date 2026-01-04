@@ -84,16 +84,18 @@ public class AprilTagNavigator {
         // Orientation: (yaw, pitch, roll) where yaw=rotation around z, pitch=rotation
         // around x, roll=rotation around y
         //
-        // Camera orientation assumptions:
-        // - pitch=-90 means camera is horizontal (pointing forward, not up)
-        // - This is correct if camera is mounted with USB port horizontal (typical
-        // webcam mount)
-        // - If camera is mounted differently (e.g., USB port vertical), adjust pitch
-        // accordingly
-        // - yaw=0 means camera pointing forward relative to robot
+        // Camera orientation assumptions (DECODE Field Standard):
+        // Per FTC SDK v11.0 and DECODE Competition Manual:
+        // - pitch=0 means camera optical axis is horizontal (pointing forward at horizon level)
+        // - This is correct for a standard front-facing webcam mount
+        // - pitch=-90 would mean camera pointing straight down at the floor (INCORRECT for navigation)
+        // - yaw=0 means camera pointing forward relative to robot (0° in robot frame)
         // - roll=0 means camera is not rotated around its optical axis
+        // IMPORTANT: Using pitch=0 ensures ftcPose X/Y are correctly aligned:
+        //   - ftcPose.x = sideways offset (right is positive, matches field X axis)
+        //   - ftcPose.y = forward distance (away is positive, matches field Y axis)
         Position cameraPosition = new Position(DistanceUnit.INCH, 0, 0, CAMERA_HEIGHT, 0);
-        YawPitchRollAngles cameraOrientation = new YawPitchRollAngles(AngleUnit.DEGREES, 0, -90, 0, 0);
+        YawPitchRollAngles cameraOrientation = new YawPitchRollAngles(AngleUnit.DEGREES, 0, 0, 0, 0);
         //
         aprilTag = new AprilTagProcessor.Builder()
                 .setDrawTagID(true) // Show tag ID numbers
@@ -200,24 +202,31 @@ public class AprilTagNavigator {
     }
 
     /**
-     * Get the best AprilTag detection for localization
+     * Get the best AprilTag detection for localization.
+     * 
+     * DECODE-Compliant: Only returns alliance goal tags (IDs 20 and 24).
+     * Ignores obelisk tags (21, 22, 23) as they are not recommended for
+     * navigation per DECODE Competition Manual.
      * 
      * Filters detections by distance and confidence, returns closest reliable
-     * detection.
-     * Uses FTC SDK pose data: range = direct distance to tag center.
+     * detection. Uses FTC SDK pose data: range = direct distance to tag center.
      * 
-     * @return Best AprilTag detection or null if none found
+     * @return Best alliance goal detection or null if none found
      */
     public AprilTagDetection getBestDetection() {
         List<AprilTagDetection> detections = aprilTag.getDetections();
         if (detections.isEmpty())
             return null;
 
-        // Filter detections by distance and decision margin
+        // Filter detections by:
+        // 1. DECODE alliance goal tags only (IDs 20 = Blue, 24 = Red)
+        // 2. Distance thresholds for reliable detection
+        // 3. Decision margin (tag classification confidence)
         // tag.ftcPose.range = direct distance to tag center (inches)
         // tag.decisionMargin = measure of tag classification confidence (NOT 0-1 scale,
         // can be > 1.0)
         return detections.stream()
+                .filter(tag -> tag.id == 20 || tag.id == 24) // DECODE: alliance goals only
                 .filter(tag -> tag.ftcPose.range >= MIN_DETECTION_DISTANCE)
                 .filter(tag -> tag.ftcPose.range <= MAX_DETECTION_DISTANCE)
                 .filter(tag -> tag.decisionMargin >= MIN_DECISION_MARGIN)
@@ -225,13 +234,24 @@ public class AprilTagNavigator {
                 .orElse(null);
     }
 
+     /**
+    * Returns all detections without ID filtering.
+    * Used for Motif detection where we need IDs 21, 22, 23.
+    */
+    public List<AprilTagDetection> getRawDetections() {
+    return aprilTag.getDetections();
+    }
+
     /**
-     * Get all valid AprilTag detections
+     * Get all valid AprilTag detections.
      * 
-     * @return List of valid detections
+     * DECODE-Compliant: Only returns alliance goal tags (IDs 20 and 24).
+     * 
+     * @return List of valid alliance goal detections
      */
     public List<AprilTagDetection> getAllDetections() {
         return aprilTag.getDetections().stream()
+                .filter(tag -> tag.id == 20 || tag.id == 24) // DECODE: alliance goals only
                 .filter(tag -> tag.ftcPose.range >= MIN_DETECTION_DISTANCE)
                 .filter(tag -> tag.ftcPose.range <= MAX_DETECTION_DISTANCE)
                 .filter(tag -> tag.decisionMargin >= MIN_DECISION_MARGIN)
@@ -261,24 +281,42 @@ public class AprilTagNavigator {
 
     /**
      * Calculate robot's field position based on AprilTag detection WITHOUT updating
-     * drive subsystem
+     * drive subsystem.
      * 
-     * Uses FTC SDK coordinate system:
-     * - X axis: points to the right (positive = right of camera center)
-     * - Y axis: points straight outward from camera lens (positive = forward)
-     * - Z axis: points upward (positive = up from camera)
-     * - Yaw: rotation around Z axis (positive = counterclockwise)
+     * DECODE-Compliant Localization (FTC SDK v11.0 + DECODE Manual Page 72):
      * 
-     * IMPORTANT: detection.ftcPose.x/y is the vector FROM camera TO tag.
-     * detection.ftcPose.yaw is the tag's rotation relative to camera (not camera
-     * relative to tag).
+     * Coordinate Systems:
+     * - Camera Frame: X=right, Y=forward (from camera lens perspective)
+     * - Field Frame: X=toward Blue wall, Y=toward Audience (standard FTC)
+     * - ftcPose reports the vector FROM camera TO tag in camera's local frame
+     * - ftcPose.yaw = tag's rotation relative to camera (how much tag is "twisted")
      * 
-     * @param detection AprilTag detection
+     * Key Insight: The camera and tag face each other:
+     * - Tag heading (field) is the direction the tag's normal vector points
+     * - Camera heading is OPPOSITE: camera heading = tag heading + 180° - tag's relative yaw
+     * - This accounts for the tag being on the wall and camera viewing it from the robot
+     * 
+     * Transformation Steps:
+     * 1. Extract camera-relative measurements (already in camera frame)
+     * 2. Calculate camera's absolute heading in field frame
+     * 3. Rotate camera-relative vector to field frame using camera's heading
+     * 4. Compute robot position = tag position - rotated vector
+     * 
+     * @param detection AprilTag detection (must be verified as valid alliance goal tag)
      * @return Robot pose as {x, y, heading} or null if calculation fails
      */
     private double[] calculateRobotPoseWithoutUpdating(AprilTagDetection detection) {
         if (detection == null)
             return null;
+
+        // Only process DECODE alliance goal tags (IDs 20 and 24)
+        // Obelisk tags (21, 22, 23) are NOT recommended for navigation per DECODE Manual
+        if (detection.id != 20 && detection.id != 24) {
+            if (telemetry != null) {
+                telemetry.addData("AprilTag Warning", "Tag ID %d is not a DECODE alliance goal", detection.id);
+            }
+            return null;
+        }
 
         double[] tagFieldPos = getAprilTagFieldPosition(detection.id);
         if (tagFieldPos == null) {
@@ -288,45 +326,41 @@ public class AprilTagNavigator {
             return null;
         }
 
-        // Get relative position FROM camera TO tag using FTC SDK coordinate system
-        // detection.ftcPose.x = sideways offset (positive = tag is right of camera center)
-        // detection.ftcPose.y = forward distance (positive = tag is forward from camera)
-        // detection.ftcPose.yaw = tag's rotation around Z axis relative to camera
-        // (positive = tag rotated counterclockwise relative to camera)
-        double relativeX = detection.ftcPose.x; // Camera-to-tag X offset (right = positive)
-        double relativeY = detection.ftcPose.y; // Camera-to-tag Y offset (forward = positive)
-        double relativeYaw = Math.toRadians(detection.ftcPose.yaw); // Tag rotation relative to camera
+        // ===== STEP 1: Extract camera-relative measurements =====
+        // These vectors are in the camera's local coordinate frame
+        double relX = detection.ftcPose.x;   // Sideways offset (right = positive)
+        double relY = detection.ftcPose.y;   // Forward distance (away = positive)
+        double relYaw = Math.toRadians(detection.ftcPose.yaw); // Tag rotation relative to camera
 
-        // Tag field position
-        double tagX = tagFieldPos[0];
-        double tagY = tagFieldPos[1];
-        double tagHeading = Math.toRadians(tagFieldPos[2]);
+        // ===== STEP 2: Get tag's absolute field position and orientation =====
+        double tagX = tagFieldPos[0];        // Tag X position in field (inches)
+        double tagY = tagFieldPos[1];        // Tag Y position in field (inches)
+        double tagHeading = Math.toRadians(tagFieldPos[2]); // Tag facing direction (radians)
 
-        // The camera-to-tag vector is in camera coordinates (X=right, Y=forward)
-        // To convert to field coordinates, we need to rotate by (tagHeading - π/2)
-        // because tagHeading is the direction the tag is facing (perpendicular to tag plane)
-        // Field coordinates: X=right (0°), Y=up (90°)
-        // Camera coordinates: X=right (0°), Y=forward (90° relative to camera)
+        // ===== STEP 3: Calculate camera's absolute heading in field frame =====
+        // Key relationship: Camera and tag face each other (opposite directions)
+        // Camera heading = Tag heading + π (180°) - relative yaw
+        // The subtraction of relYaw accounts for the tag's rotation relative to the camera
+        double cameraHeading = tagHeading + Math.PI - relYaw;
+
+        // ===== STEP 4: Transform camera-to-tag vector to field frame =====
+        // Standard 2D rotation transformation:
+        // [fieldX]   [cos(θ)  -sin(θ)] [relX]
+        // [fieldY] = [sin(θ)   cos(θ)] [relY]
+        // where θ = cameraHeading
+        double cos_heading = Math.cos(cameraHeading);
+        double sin_heading = Math.sin(cameraHeading);
         
-        // Calculate camera heading relative to field (tag heading - relative yaw gives us camera heading)
-        double cameraHeading = tagHeading - relativeYaw;
-        
-        // Rotate camera-to-tag vector from camera coordinates to field coordinates
-        double cosCam = Math.cos(cameraHeading);
-        double sinCam = Math.sin(cameraHeading);
-        
-        // Rotate the camera-to-tag vector to field coordinates
-        double fieldX = relativeX * cosCam - relativeY * sinCam;
-        double fieldY = relativeX * sinCam + relativeY * cosCam;
+        double fieldDX = relX * cos_heading - relY * sin_heading;
+        double fieldDY = relX * sin_heading + relY * cos_heading;
 
-        // Calculate robot's field position
-        // Since detection vector points FROM camera TO tag, robot position = tag position - rotated vector
-        // But camera is offset from robot center, so robot position = tag position - field vector
-        double robotX = tagX - fieldX;
-        double robotY = tagY - fieldY;
+        // ===== STEP 5: Calculate robot's field position =====
+        // The rotated vector points FROM camera TO tag
+        // Therefore: robot position = tag position - vector
+        double robotX = tagX - fieldDX;
+        double robotY = tagY - fieldDY;
 
-        // Calculate robot's field heading
-        // Camera heading = tag heading - relative yaw
+        // Camera's heading is the robot's heading (camera is centered on robot)
         double robotHeading = cameraHeading;
 
         return new double[] { robotX, robotY, robotHeading };

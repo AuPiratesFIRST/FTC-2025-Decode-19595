@@ -5,8 +5,11 @@ import com.qualcomm.robotcore.hardware.Servo;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 
 /**
- * Funnel subsystem with two synchronized servos that push balls out of the spindexer.
- * The servos are connected to companion gears and move together to push balls forward.
+ * Funnel subsystem with two separate cams.
+ * Since there are no gears, we handle the mirroring and synchronization here.
+ * 
+ * IMPORTANT: The servos face each other, so one must be reversed to ensure
+ * both cams push the ball in the same direction (not opposing each other).
  */
 public class FunnelSubsystem {
 
@@ -14,15 +17,20 @@ public class FunnelSubsystem {
     private final Servo rightFunnelServo;
     private final Telemetry telemetry;
 
-    // Servo positions
-    private static final double RETRACTED_POSITION = 0.0;  // Retracted position (servos pulled back)
-    private static final double EXTENDED_POSITION = 1.0;    // Extended position (servos pushed forward)
+    // PHYSICAL CALIBRATION:
+    // Cams rarely use the full 0.0 to 1.0 range. 
+    // Adjust these values so the cams don't hit the robot frame.
+    // Start with conservative values (0.4-0.6) during testing, then expand to full range.
+    private static final double LEFT_RETRACT  = 0.1; 
+    private static final double LEFT_EXTEND   = 0.9;
     
-    // Current state
+    private static final double RIGHT_RETRACT = 0.1; 
+    private static final double RIGHT_EXTEND  = 0.9;
+    
     private boolean isExtended = false;
 
     /**
-     * Initialize the funnel subsystem with two servos.
+     * Initialize the funnel subsystem with two independent cam servos.
      * 
      * @param hardwareMap Hardware map from OpMode
      * @param telemetry Telemetry for debugging
@@ -30,40 +38,36 @@ public class FunnelSubsystem {
     public FunnelSubsystem(HardwareMap hardwareMap, Telemetry telemetry) {
         this.telemetry = telemetry;
 
-        // Initialize servos - adjust names to match your configuration
         leftFunnelServo = hardwareMap.get(Servo.class, "leftFunnel");
         rightFunnelServo = hardwareMap.get(Servo.class, "rightFunnel");
 
-        // Set initial position to retracted
+        // MIRRORING: 
+        // If the servos face each other, one must be reversed so that 
+        // a single logical command moves both cams "Forward".
+        // Adjust this if testing shows the cams move in opposite directions.
+        rightFunnelServo.setDirection(Servo.Direction.REVERSE);
+
         retract();
     }
 
     /**
-     * Extend both servos forward to push balls out of the spindexer.
-     * Servos are synchronized to move together.
+     * Moves both cams forward to push the ball out of the spindexer.
+     * This is the active "firing" position.
      */
     public void extend() {
-        leftFunnelServo.setPosition(EXTENDED_POSITION);
-        rightFunnelServo.setPosition(EXTENDED_POSITION);
+        leftFunnelServo.setPosition(LEFT_EXTEND);
+        rightFunnelServo.setPosition(RIGHT_EXTEND);
         isExtended = true;
-
-        if (telemetry != null) {
-            telemetry.addData("Funnel", "Extended");
-        }
     }
 
     /**
-     * Retract both servos back to their starting position.
-     * Servos are synchronized to move together.
+     * Moves both cams back to the ready position.
+     * This is the idle state where cams are clear of the ball path.
      */
     public void retract() {
-        leftFunnelServo.setPosition(RETRACTED_POSITION);
-        rightFunnelServo.setPosition(RETRACTED_POSITION);
+        leftFunnelServo.setPosition(LEFT_RETRACT);
+        rightFunnelServo.setPosition(RIGHT_RETRACT);
         isExtended = false;
-
-        if (telemetry != null) {
-            telemetry.addData("Funnel", "Retracted");
-        }
     }
 
     /**
@@ -71,54 +75,34 @@ public class FunnelSubsystem {
      * If currently extended, retracts. If retracted, extends.
      */
     public void toggle() {
-        if (isExtended) {
-            retract();
-        } else {
-            extend();
-        }
+        if (isExtended) retract();
+        else extend();
     }
 
     /**
-     * Set both servos to a specific position (0.0 to 1.0).
-     * Servos are synchronized to move together.
+     * Synchronization helper:
+     * Moves both cams to the same relative percentage of their travel range.
+     * Even without gears, we want them to move in sync.
      * 
-     * @param position Position value (0.0 = retracted, 1.0 = extended)
+     * @param normalized Position from 0.0 (fully retracted) to 1.0 (fully extended)
      */
-    public void setPosition(double position) {
-        position = Math.max(0.0, Math.min(1.0, position)); // Clamp to valid range
-        leftFunnelServo.setPosition(position);
-        rightFunnelServo.setPosition(position);
-        isExtended = position > 0.5; // Consider extended if past halfway
-
-        if (telemetry != null) {
-            telemetry.addData("Funnel Position", "%.2f", position);
-        }
-    }
-
-    /**
-     * Set individual servo positions (for fine-tuning if needed).
-     * 
-     * @param leftPosition Left servo position (0.0 to 1.0)
-     * @param rightPosition Right servo position (0.0 to 1.0)
-     */
-    public void setPositions(double leftPosition, double rightPosition) {
-        leftPosition = Math.max(0.0, Math.min(1.0, leftPosition));
-        rightPosition = Math.max(0.0, Math.min(1.0, rightPosition));
+    public void setSyncPosition(double normalized) {
+        // Clamp input to valid range
+        normalized = Math.max(0.0, Math.min(1.0, normalized));
         
-        leftFunnelServo.setPosition(leftPosition);
-        rightFunnelServo.setPosition(rightPosition);
-        isExtended = (leftPosition + rightPosition) / 2.0 > 0.5;
-
-        if (telemetry != null) {
-            telemetry.addData("Funnel Left", "%.2f", leftPosition);
-            telemetry.addData("Funnel Right", "%.2f", rightPosition);
-        }
+        // Map 0.0-1.0 to the specific physical limits of each cam
+        double lPos = LEFT_RETRACT + (normalized * (LEFT_EXTEND - LEFT_RETRACT));
+        double rPos = RIGHT_RETRACT + (normalized * (RIGHT_EXTEND - RIGHT_RETRACT));
+        
+        leftFunnelServo.setPosition(lPos);
+        rightFunnelServo.setPosition(rPos);
+        isExtended = normalized > 0.5;
     }
 
     /**
      * Check if funnels are currently extended.
      * 
-     * @return True if extended, false if retracted
+     * @return True if extended (pushing), false if retracted (idle)
      */
     public boolean isExtended() {
         return isExtended;
@@ -146,11 +130,10 @@ public class FunnelSubsystem {
      * Update telemetry with funnel information.
      */
     public void updateTelemetry() {
-        if (telemetry != null) {
-            telemetry.addData("Funnel Status", isExtended ? "Extended" : "Retracted");
-            telemetry.addData("Funnel Left Position", "%.2f", getLeftPosition());
-            telemetry.addData("Funnel Right Position", "%.2f", getRightPosition());
-        }
+        if (telemetry == null) return;
+        telemetry.addData("Funnel State", isExtended ? "PUSHING" : "IDLE");
+        telemetry.addData("Cam Positions", "L:%.2f R:%.2f", 
+                leftFunnelServo.getPosition(), rightFunnelServo.getPosition());
     }
 }
 
