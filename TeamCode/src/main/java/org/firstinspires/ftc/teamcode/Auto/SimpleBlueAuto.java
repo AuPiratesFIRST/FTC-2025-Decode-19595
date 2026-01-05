@@ -40,13 +40,16 @@ public class SimpleBlueAuto extends OpMode {
     @Override
     public void init() {
         drive = new DriveSubsystem(hardwareMap, telemetry);
+        
+        // Set initial heading for Blue alliance starting at C1 facing goal (135°)
+        drive.setPoseHeading(Math.toRadians(135));
+        
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
 
         /**
-         * YOUR TeleOp uses this constructor:
-         *    new AprilTagNavigator(drive, hardwareMap, telemetry)
-         * so Auto MUST use the same one.
+         * Initialize AprilTag Navigator with corrected 9.0 inch Y-offset.
+         * This constructor matches TeleOp and ensures proper localization.
          */
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
 

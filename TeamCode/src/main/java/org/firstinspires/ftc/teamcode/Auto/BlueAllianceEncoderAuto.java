@@ -53,6 +53,13 @@ public class BlueAllianceEncoderAuto extends OpMode {
 
         // Initialize subsystems
         drive = new DriveSubsystem(hardwareMap, telemetry);
+        
+        // Set initial heading for Blue alliance starting at C1 facing goal (135°)
+        drive.setPoseHeading(Math.toRadians(135));
+        
+        // Initialize AprilTag Navigator with corrected 9.0 inch Y-offset
+        aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
+        
         intake = new IntakeSubsystem(hardwareMap, telemetry);
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);

@@ -94,7 +94,9 @@ public class AprilTagNavigator {
         // IMPORTANT: Using pitch=0 ensures ftcPose X/Y are correctly aligned:
         //   - ftcPose.x = sideways offset (right is positive, matches field X axis)
         //   - ftcPose.y = forward distance (away is positive, matches field Y axis)
-        Position cameraPosition = new Position(DistanceUnit.INCH, 0, 0, CAMERA_HEIGHT, 0);
+        // CRITICAL: Camera is mounted at the front edge of the robot (y=9.0 inches from center)
+        // This is required for accurate DECODE game localization and aiming
+        Position cameraPosition = new Position(DistanceUnit.INCH, 0, 9.0, CAMERA_HEIGHT, 0);
         YawPitchRollAngles cameraOrientation = new YawPitchRollAngles(AngleUnit.DEGREES, 0, 0, 0, 0);
         //
         aprilTag = new AprilTagProcessor.Builder()

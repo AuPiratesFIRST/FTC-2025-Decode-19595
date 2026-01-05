@@ -22,12 +22,12 @@ Field Dimensions: 144" x 144" (6x6 tiles of 24" each)
 
 Tile Grid (A-F, 1-6):
      A   B   C   D   E   F
-6  [F6][F6][F6][F6][F6][F6]
-5  [F5][F5][F5][F5][F5][F5]
-4  [F4][F4][F4][F4][F4][F4]
-3  [F3][F3][F3][F3][F3][F3]
-2  [F2][F2][F2][F2][F2][F2]
-1  [F1][F1][F1][F1][F1][F1]
+6  [A6][B6][C6][D6][E6][F6]
+5  [A5][B5][C5][D5][E5][F5]
+4  [A4][B4][C4][D4][E4][F4]
+3  [A3][B3][C3][D3][E3][F3]
+2  [A2][B2][C2][D2][E2][F2]
+1  [A1][B1][C1][D1][E1][F1]
 
 Tab Intersections (V-Z, 1-5):
      V   W   X   Y   Z

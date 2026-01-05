@@ -83,11 +83,17 @@ public class RedAllianceEncoderAuto extends OpMode {
 
         // Initialize subsystems
         drive = new DriveSubsystem(hardwareMap, telemetry);
+        
+        // Set initial heading for Red alliance starting at D1 facing goal (45°)
+        drive.setPoseHeading(Math.toRadians(45));
+        
+        // Initialize AprilTag Navigator with corrected 9.0 inch Y-offset
+        aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
+        obeliskDetector = new ObeliskMotifDetector(aprilTag, telemetry);
+        
         intake = new IntakeSubsystem(hardwareMap, telemetry);
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
-        aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
-        obeliskDetector = new ObeliskMotifDetector(aprilTag, telemetry);
 
         // Initialize state
         pathState = 0;
