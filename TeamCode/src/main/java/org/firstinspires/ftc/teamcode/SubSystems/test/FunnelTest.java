@@ -106,7 +106,7 @@ public class FunnelTest extends LinearOpMode {
             if (Math.abs(leftStickY) > 0.1) {
                 // Map stick position (-1 to 1) to servo position (0 to 1)
                 manualPosition = (leftStickY + 1.0) / 2.0;
-                funnel.setPosition(manualPosition);
+                funnel.setSyncPosition(manualPosition);
             }
 
             // Individual servo control with right stick
@@ -116,7 +116,7 @@ public class FunnelTest extends LinearOpMode {
                 // Map stick positions to servo positions
                 double leftPos = (rightStickY + 1.0) / 2.0;
                 double rightPos = (rightStickX + 1.0) / 2.0;
-                funnel.setPositions(leftPos, rightPos);
+                funnel.setSyncPosition(leftPos, rightPos);
                 manualPosition = (leftPos + rightPos) / 2.0;
             }
 

@@ -17,6 +17,7 @@ import org.firstinspires.ftc.teamcode.SubSystems.Sensors.ColorSensorSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Scoring.AutoOuttakeController;
 import org.firstinspires.ftc.teamcode.SubSystems.Scoring.ArtifactColor;
 import org.firstinspires.ftc.teamcode.SubSystems.Scoring.PatternScorer;
+import org.firstinspires.ftc.teamcode.SubSystems.Funnel.FunnelSubsystem;
 
 /**
  * Comprehensive Subsystem Test OpMode
@@ -55,6 +56,7 @@ public class ComprehensiveSubsystemTest extends LinearOpMode {
     private ColorSensorSubsystem colorSensorSubsystem;
     private AutoOuttakeController autoOuttake;
     private NormalizedColorSensor colorSensor;
+    private FunnelSubsystem funnel;
 
     private enum TestPhase {
         APRILTAG_DETECTION,
@@ -102,12 +104,13 @@ public class ComprehensiveSubsystemTest extends LinearOpMode {
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
         obeliskDetector = new ObeliskMotifDetector(aprilTag, telemetry);
+        funnel = new FunnelSubsystem(hardwareMap, telemetry);
 
         // Initialize color sensor (optional)
         try {
             colorSensor = hardwareMap.get(NormalizedColorSensor.class, "sensor_color");
             colorSensorSubsystem = new ColorSensorSubsystem(colorSensor, null, telemetry, testMotif);
-            autoOuttake = new AutoOuttakeController(colorSensorSubsystem, testMotif, spindexer, shooter, telemetry);
+            autoOuttake = new AutoOuttakeController(colorSensorSubsystem, testMotif, spindexer, shooter, funnel, telemetry);
             autoOuttake.setScoreThreshold(6);
             autoOuttake.setTargetShooterRPM(SHOOTER_TARGET_RPM);
         } catch (Exception e) {

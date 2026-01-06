@@ -212,7 +212,7 @@ public class RedAlliancePedroAuto extends OpMode {
                         new Pose(90, 40)        // Shooting position
                 ))
                 .setTangentHeadingInterpolation()
-                .setReversed(true)
+                .setReversed()
                 .build();
     }
     

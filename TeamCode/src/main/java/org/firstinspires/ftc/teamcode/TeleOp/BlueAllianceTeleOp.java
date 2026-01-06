@@ -70,6 +70,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
     // Button state tracking
     private boolean spindexerPressLast = false;
     private boolean dpadDownLast = false;
+    private boolean dpadUpLast = false;
     private boolean rbPressedLast = false;
     private boolean yPressedLast = false;
     private boolean xPressedLast = false; // Manual control toggle
@@ -80,6 +81,9 @@ public class BlueAllianceTeleOp extends LinearOpMode {
     
     // Drive speed toggle
     private double driveSpeed = 1.0;
+    
+    // Inverse direction toggle
+    private boolean inverseDirection = false;
 
     // Spindexer positions (inspired by Decode20252026 but using subsystem)
     private static final double TICKS_PER_REVOLUTION = 2150.8;

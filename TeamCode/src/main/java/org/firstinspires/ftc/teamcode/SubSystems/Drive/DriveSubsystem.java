@@ -21,6 +21,11 @@ public class DriveSubsystem {
     public final DcMotorEx leftFront, leftRear, rightRear, rightFront;
     private IMU imu; // REV Hub IMU for absolute rotation measurement
 
+    // Pose tracking for localization
+    private TileCoordinate currentPosition;
+    private double currentHeading; // in radians
+    private double poseHeading; // in radians
+
     private static final double TICKS_PER_REVOLUTION = 560.0;
     private static final double WHEEL_DIAMETER = 4.0; // inches
     private static final double WHEEL_BASE = 16.0; // inches between wheels
@@ -42,6 +47,11 @@ public class DriveSubsystem {
 
         configureMotors();
         initializeIMU(hardwareMap);
+        
+        // Initialize pose tracking
+        currentPosition = new TileCoordinate(0, 0);
+        currentHeading = 0.0;
+        poseHeading = 0.0;
     }
 
     private void configureMotors() {
@@ -79,7 +89,7 @@ public class DriveSubsystem {
         // ADJUST THESE VALUES to match your physical robot configuration!
         RevHubOrientationOnRobot orientationOnRobot = new RevHubOrientationOnRobot(
                 RevHubOrientationOnRobot.LogoFacingDirection.UP,
-                RevHubOrientationOnRobot.UsbFacingDirection.FORWARD);
+                RevHubOrientationOnRobot.UsbFacingDirection.LEFT);
 
         imu.initialize(new IMU.Parameters(orientationOnRobot));
         
@@ -252,5 +262,66 @@ public class DriveSubsystem {
      */
     public boolean isAtTarget() {
         return !leftFront.isBusy() && !leftRear.isBusy() && !rightFront.isBusy() && !rightRear.isBusy();
+    }
+
+    // =================== POSE TRACKING METHODS ===================
+
+    /**
+     * Set the pose heading (initial heading for pose estimation).
+     * This is used to initialize the robot's orientation in the field coordinate system.
+     * 
+     * @param heading Heading in radians
+     */
+    public void setPoseHeading(double heading) {
+        this.poseHeading = heading;
+        this.currentHeading = heading;
+        
+        if (telemetry != null) {
+            telemetry.addData("Pose Heading", "%.1f°", Math.toDegrees(heading));
+        }
+    }
+
+    /**
+     * Set the robot's current position on the field.
+     * 
+     * @param position TileCoordinate representing the robot's position
+     */
+    public void setPosition(TileCoordinate position) {
+        this.currentPosition = position;
+        
+        if (telemetry != null) {
+            telemetry.addData("Position Set", "X: %.1f, Y: %.1f", position.getX(), position.getY());
+        }
+    }
+
+    /**
+     * Set the robot's current heading.
+     * 
+     * @param heading Heading in radians
+     */
+    public void setHeading(double heading) {
+        this.currentHeading = heading;
+        
+        if (telemetry != null) {
+            telemetry.addData("Heading Set", "%.1f°", Math.toDegrees(heading));
+        }
+    }
+
+    /**
+     * Get the robot's current position on the field.
+     * 
+     * @return Current TileCoordinate position
+     */
+    public TileCoordinate getCurrentPosition() {
+        return currentPosition;
+    }
+
+    /**
+     * Get the robot's current heading.
+     * 
+     * @return Current heading in radians
+     */
+    public double getCurrentHeading() {
+        return currentHeading;
     }
 }

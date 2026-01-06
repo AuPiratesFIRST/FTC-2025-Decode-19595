@@ -74,6 +74,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private boolean dpadRightLast = false;
     private boolean aPressedLast = false;
     private boolean bPressedLast = false;
+    private boolean funnelToggleLast = false;
 
     private static final double SHOOTER_TARGET_RPM = 5220.0;
     private static final int TARGET_TAG_ID = 24;
@@ -86,8 +87,8 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
-        funnel = new FunnelSubsystem(hardwareMap, telemetry);
-        
+                funnel = new FunnelSubsystem(hardwareMap, telemetry);
+
         // Initialize Timers - FIXED: Both timers now initialized
         shotTimer = new ElapsedTime();
         actionTimer = new ElapsedTime();
@@ -145,6 +146,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
             handleSpindexer();
             enforceShooterSpindexerSafety();
+            handleFunnel();
             handleAprilTagAlignment();
             updateTelemetry();
         }
@@ -320,6 +322,34 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
                 shooter.stop();
                 shooterNeedsToSpinUp = true;
             }
+
+            if (funnel.isExtended()) {
+                funnel.retract();
+            }
+        }
+    }
+
+    private void handleFunnel() {
+        boolean togglePressed = gamepad2.dpad_up;
+        boolean autoOuttakeBusy = autoOuttake != null && autoOuttake.getState() != AutoOuttakeController.State.IDLE;
+        boolean spindexerReady = !spindexer.isMoving() && spindexer.isAtPosition();
+
+        if (togglePressed && !funnelToggleLast && !autoOuttakeBusy) {
+            if (spindexerReady) {
+                if (funnel.isExtended()) {
+                    funnel.retract();
+                } else {
+                    funnel.extend();
+                }
+            } else {
+                telemetry.addData("Funnel", "Waiting: spindexer moving");
+            }
+        }
+
+        funnelToggleLast = togglePressed;
+
+        if (!spindexerReady && funnel.isExtended()) {
+            funnel.retract();
         }
     }
 
@@ -350,6 +380,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         telemetry.addData("Spindexer", manualControlMode ? "MANUAL" : "AUTO");
         telemetry.addData("Mode", intakeMode ? "INTAKE" : "OUTTAKE");
         telemetry.addData("RPM", "%.0f / %.0f", shooter.getCurrentRPM(), shooter.getTargetRPM());
+        telemetry.addData("Funnel", funnel.isExtended() ? "EXTENDED" : "RETRACTED");
         telemetry.update();
     }
 }

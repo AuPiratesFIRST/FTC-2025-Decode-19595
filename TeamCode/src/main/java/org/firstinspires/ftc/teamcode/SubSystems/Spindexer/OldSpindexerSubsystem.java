@@ -64,7 +64,7 @@ public class OldSpindexerSubsystem {
     private int targetPosition = 0;
 
     private static final int POSITION_TOLERANCE = 15;
-    private static final double SPEED_MULTIPLIER = 1;
+    private static final double SPEED_MULTIPLIER = 0.75;
     private static final double MIN_POWER_THRESHOLD = 0.10;
 
     private boolean pidEnabled = false;

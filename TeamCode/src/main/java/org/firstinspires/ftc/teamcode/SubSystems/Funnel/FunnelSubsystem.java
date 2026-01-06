@@ -7,14 +7,15 @@ import org.firstinspires.ftc.robotcore.external.Telemetry;
 /**
  * Funnel subsystem with two separate cams.
  * Since there are no gears, we handle the mirroring and synchronization here.
- * 
+ *
+ *
  * IMPORTANT: The servos face each other, so one must be reversed to ensure
  * both cams push the ball in the same direction (not opposing each other).
  */
 public class FunnelSubsystem {
 
-    private final Servo leftFunnelServo;
-    private final Servo rightFunnelServo;
+    private final Servo leftCam;
+    private final Servo rightCam;
     private final Telemetry telemetry;
 
     // PHYSICAL CALIBRATION:
@@ -38,16 +39,15 @@ public class FunnelSubsystem {
     public FunnelSubsystem(HardwareMap hardwareMap, Telemetry telemetry) {
         this.telemetry = telemetry;
 
-        leftFunnelServo = hardwareMap.get(Servo.class, "leftFunnel");
-        rightFunnelServo = hardwareMap.get(Servo.class, "rightFunnel");
+        leftCam = hardwareMap.get(Servo.class, "leftCam");
+        rightCam = hardwareMap.get(Servo.class, "rightCam");
 
         // MIRRORING: 
         // If the servos face each other, one must be reversed so that 
         // a single logical command moves both cams "Forward".
         // Adjust this if testing shows the cams move in opposite directions.
-        rightFunnelServo.setDirection(Servo.Direction.REVERSE);
+        rightCam.setDirection(Servo.Direction.REVERSE);
 
-        retract();
     }
 
     /**
@@ -55,8 +55,8 @@ public class FunnelSubsystem {
      * This is the active "firing" position.
      */
     public void extend() {
-        leftFunnelServo.setPosition(LEFT_EXTEND);
-        rightFunnelServo.setPosition(RIGHT_EXTEND);
+        leftCam.setPosition(LEFT_EXTEND);
+        rightCam.setPosition(RIGHT_EXTEND);
         isExtended = true;
     }
 
@@ -65,8 +65,8 @@ public class FunnelSubsystem {
      * This is the idle state where cams are clear of the ball path.
      */
     public void retract() {
-        leftFunnelServo.setPosition(LEFT_RETRACT);
-        rightFunnelServo.setPosition(RIGHT_RETRACT);
+        leftCam.setPosition(LEFT_RETRACT);
+        rightCam.setPosition(RIGHT_RETRACT);
         isExtended = false;
     }
 
@@ -94,9 +94,51 @@ public class FunnelSubsystem {
         double lPos = LEFT_RETRACT + (normalized * (LEFT_EXTEND - LEFT_RETRACT));
         double rPos = RIGHT_RETRACT + (normalized * (RIGHT_EXTEND - RIGHT_RETRACT));
         
-        leftFunnelServo.setPosition(lPos);
-        rightFunnelServo.setPosition(rPos);
+        leftCam.setPosition(lPos);
+        rightCam.setPosition(rPos);
         isExtended = normalized > 0.5;
+    }
+
+    /**
+     * Set individual positions for left and right cams (overloaded version).
+     * Each position is normalized from 0.0 (fully retracted) to 1.0 (fully extended).
+     * 
+     * @param leftNormalized  Left cam position (0.0 to 1.0)
+     * @param rightNormalized Right cam position (0.0 to 1.0)
+     */
+    public void setSyncPosition(double leftNormalized, double rightNormalized) {
+        setPositions(leftNormalized, rightNormalized);
+    }
+
+    /**
+     * Set both cams to the same normalized position (0.0 to 1.0).
+     * This is an alias for setSyncPosition for convenience.
+     * 
+     * @param normalized Position from 0.0 (fully retracted) to 1.0 (fully extended)
+     */
+    public void setPosition(double normalized) {
+        setSyncPosition(normalized);
+    }
+
+    /**
+     * Set individual positions for left and right cams.
+     * Each position is normalized from 0.0 (fully retracted) to 1.0 (fully extended).
+     * 
+     * @param leftNormalized  Left cam position (0.0 to 1.0)
+     * @param rightNormalized Right cam position (0.0 to 1.0)
+     */
+    public void setPositions(double leftNormalized, double rightNormalized) {
+        // Clamp inputs to valid range
+        leftNormalized = Math.max(0.0, Math.min(1.0, leftNormalized));
+        rightNormalized = Math.max(0.0, Math.min(1.0, rightNormalized));
+        
+        // Map 0.0-1.0 to the specific physical limits of each cam
+        double lPos = LEFT_RETRACT + (leftNormalized * (LEFT_EXTEND - LEFT_RETRACT));
+        double rPos = RIGHT_RETRACT + (rightNormalized * (RIGHT_EXTEND - RIGHT_RETRACT));
+        
+        leftCam.setPosition(lPos);
+        rightCam.setPosition(rPos);
+        isExtended = (leftNormalized > 0.5 || rightNormalized > 0.5);
     }
 
     /**
@@ -114,7 +156,7 @@ public class FunnelSubsystem {
      * @return Position value (0.0 to 1.0)
      */
     public double getLeftPosition() {
-        return leftFunnelServo.getPosition();
+        return leftCam.getPosition();
     }
 
     /**
@@ -123,7 +165,7 @@ public class FunnelSubsystem {
      * @return Position value (0.0 to 1.0)
      */
     public double getRightPosition() {
-        return rightFunnelServo.getPosition();
+        return rightCam.getPosition();
     }
 
     /**
@@ -133,7 +175,7 @@ public class FunnelSubsystem {
         if (telemetry == null) return;
         telemetry.addData("Funnel State", isExtended ? "PUSHING" : "IDLE");
         telemetry.addData("Cam Positions", "L:%.2f R:%.2f", 
-                leftFunnelServo.getPosition(), rightFunnelServo.getPosition());
+                leftCam.getPosition(), rightCam.getPosition());
     }
 }
 
