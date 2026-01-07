@@ -1,197 +1,214 @@
 package org.firstinspires.ftc.teamcode.SubSystems.Scoring;
 
+import com.qualcomm.robotcore.util.ElapsedTime;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.teamcode.SubSystems.Sensors.ColorSensorSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Funnel.FunnelSubsystem;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
- * AutoOuttakeController
- *
- * Non-blocking controller that:
- *  - reads a ColorSensorSubsystem
- *  - maintains a rolling detected ramp (up to 9)
- *  - uses PatternScorer to compute motif score
- *  - when score >= threshold: spin shooter, then advance spindexer to outtake
- *
- * Call update() each cycle from your opmode loop. Provide ability to change motif
- * at runtime via setMotif().
+ * AutoOuttakeController - Cam/Funnel Logic Version
+ * 
+ * Logic Flow:
+ * 1. Detect Pattern -> Spin Shooter -> Move Spindexer to Start.
+ * 2. Wait for Spindexer & Shooter stability.
+ * 3. Extend Cam (Push) -> Wait -> Retract Cam -> Wait.
+ * 4. Move Spindexer to next index.
+ * 5. Repeat until all balls are shot.
  */
 public class AutoOuttakeController {
 
-    public enum State { IDLE, WAITING_FOR_SHOOTER, OUTTAKING, COOLDOWN }
+    public enum State {
+        IDLE,               // Waiting for color sensor match
+        PREPARING,          // Moving to first slot, spinning up shooter
+        READY_TO_SHOOT,     // In position, waiting for stability
+        SHOOTING_EXTEND,    // Pushing the ball (Cam Out)
+        SHOOTING_RETRACT,   // Resetting the cam (Cam In)
+        INDEXING,           // Moving to the next slot
+        COOLDOWN            // Done, resetting systems
+    }
 
-    private final ColorSensorSubsystem colorSensorSubsystem;
+    // Subsystems
+    private final ColorSensorSubsystem colorSensor;
     private final OldSpindexerSubsystem spindexer;
     private final ShooterSubsystem shooter;
     private final FunnelSubsystem funnel;
     private final Telemetry telemetry;
 
-    // Configurable
+    // Settings
     private int scoreThreshold = 6;
-    private double targetShooterRPM = 5200;
-    private long shooterTimeoutMs = 4000;
-    private long cooldownMs = 1500;
-    private long funnelPushDurationMs = 150;  // Time to hold funnel extended (cam flip time)
-    private long jamDetectionTimeoutMs = 500; // Time before considering funnel jammed
+    private double targetShooterRPM = 5220;
     
-    // Jam detection state
-    private long funnelExtendStartTime = 0;
-    private boolean jamRecoveryInProgress = false;
+    // Timing Constants (Adjust these based on mechanical testing!)
+    private static final long TIME_TO_EXTEND_MS = 300;   // Time cam stays out to ensure ball fires
+    private static final long TIME_TO_RETRACT_MS = 250;  // Time allowed for cam to pull back before indexing
+    private static final long SHOOTER_TIMEOUT_MS = 3000; // Give up if shooter never reaches speed
+    private static final long INDEX_TIMEOUT_MS = 1500;   // Safety timeout for spindexer rotation
 
+    // State Variables
     private State state = State.IDLE;
-    private boolean autoEnabled = true;
-    private int outtakeCount = 0;
-    private int outtakePerformed = 0;
-    private long stateStartTime = 0;
+    private ArtifactColor[] currentMotif;
+    private int shotsFired = 0;
+    private int totalShotsToFire = 0;
+    
+    private final ElapsedTime timer = new ElapsedTime();
+    private final ElapsedTime totalStateTimer = new ElapsedTime();
 
-    public AutoOuttakeController(ColorSensorSubsystem colorSensorSubsystem,
-                                 ArtifactColor[] motif,
+    public AutoOuttakeController(ColorSensorSubsystem colorSensor,
+                                 ArtifactColor[] defaultMotif,
                                  OldSpindexerSubsystem spindexer,
                                  ShooterSubsystem shooter,
                                  FunnelSubsystem funnel,
                                  Telemetry telemetry) {
-        this.colorSensorSubsystem = colorSensorSubsystem;
+        this.colorSensor = colorSensor;
         this.spindexer = spindexer;
         this.shooter = shooter;
         this.funnel = funnel;
         this.telemetry = telemetry;
-        setMotif(motif);
+        this.currentMotif = defaultMotif;
+        
+        // Ensure color sensor knows the motif
+        this.colorSensor.setMotif(defaultMotif);
     }
 
-    // Call every loop
     public void update() {
-        // 1) update sensor subsystem
-        colorSensorSubsystem.update();
+        // 1. Update Sensors
+        colorSensor.update();
+        int currentScore = colorSensor.getPatternScore();
+        ArtifactColor[] detectedRamp = colorSensor.getDetectedRamp();
 
-        ArtifactColor[] detectedArray = colorSensorSubsystem.getDetectedRamp();
-        int score = colorSensorSubsystem.getPatternScore();
-
-        // telemetry
-        if (telemetry != null) {
-            telemetry.addData("AutoState", state.toString());
-            telemetry.addData("DetectedRamp", PatternScorer.patternString(detectedArray));
-            telemetry.addData("PatternScore", "%d/%d", score, 9);
-            telemetry.addData("Outtake", "%d/%d", outtakePerformed, outtakeCount);
-        }
-
-        // 2) state machine
+        // 2. State Machine
         switch (state) {
             case IDLE:
-                if (autoEnabled && score >= scoreThreshold && detectedArray.length > 0) {
-                    outtakeCount = Math.min(3, detectedArray.length);
-                    outtakePerformed = 0;
-                    shooter.setTargetRPM(targetShooterRPM);
-                    state = State.WAITING_FOR_SHOOTER;
-                    stateStartTime = System.currentTimeMillis();
+                // Trigger Condition: High Score & Balls Detected
+                if (currentScore >= scoreThreshold && detectedRamp.length > 0) {
+                    startOuttakeSequence(detectedRamp.length);
                 }
                 break;
 
-            case WAITING_FOR_SHOOTER:
-                if (shooter.isAtTargetRPM()) {
-                    // Rotate to starting position based on motif (position 0 for first color)
-                    spindexer.setIntakeMode(false); // Switch to outtake mode
-                    spindexer.rotateToMotifStartPosition(colorSensorSubsystem.getMotif());
-                    state = State.OUTTAKING;
-                    stateStartTime = System.currentTimeMillis();
-                } else if (System.currentTimeMillis() - stateStartTime > shooterTimeoutMs) {
-                    // Timeout - proceed anyway
-                    spindexer.setIntakeMode(false);
-                    spindexer.rotateToMotifStartPosition(colorSensorSubsystem.getMotif());
-                    state = State.OUTTAKING;
-                    stateStartTime = System.currentTimeMillis();
-                    if (telemetry != null) telemetry.addData("AutoOuttake", "Shooter timeout - proceeding");
-                }
-                break;
-
-            case OUTTAKING:
-                // CRITICAL SAFETY: Stop shooter when spindexer is moving
-                if (spindexer.isMoving() || !spindexer.isAtPosition()) {
-                    shooter.stop();
-                    funnel.retract(); // Keep funnel clear while spindexer moves
-                    jamRecoveryInProgress = false; // Reset jam detection during movement
-                }
+            case PREPARING:
+                // Step 1: Lock Intake, Spin Shooter, Move to Start
+                spindexer.setIntakeMode(false);
+                shooter.setTargetRPM(targetShooterRPM);
                 
-                if (outtakePerformed >= outtakeCount) {
-                    state = State.COOLDOWN;
-                    stateStartTime = System.currentTimeMillis();
-                    spindexer.setIntakeMode(true);
-                    shooter.stop();
-                    funnel.retract(); // Clear for next cycle
-                    break;
+                // Command move only once
+                if (!spindexer.isMoving()) {
+                    spindexer.rotateToMotifStartPosition(currentMotif);
                 }
 
-                // Wait for spindexer to reach position before firing
-                // CRITICAL: Shooter must be stopped while spindexer is moving
-                if (spindexer.isMoving() || !spindexer.isAtPosition()) {
-                    shooter.stop(); // Keep shooter stopped during movement
-                    funnel.retract(); // Keep funnel clear
-                } else if (!spindexer.isSettling() && spindexer.isAtPosition()) {
-                    long timeSinceLastMove = System.currentTimeMillis() - stateStartTime;
+                // If shooter takes too long, just go anyway
+                boolean timeout = totalStateTimer.milliseconds() > SHOOTER_TIMEOUT_MS;
+                
+                // Wait until Spindexer arrives AND Shooter is ready
+                if ((shooter.isAtTargetRPM() && spindexer.isAtPosition()) || timeout) {
+                    state = State.READY_TO_SHOOT;
+                    timer.reset();
+                }
+                break;
+
+            case READY_TO_SHOOT:
+                // Brief pause to ensure ball settles into the hole before pushing
+                if (timer.milliseconds() > 150) {
+                    state = State.SHOOTING_EXTEND;
+                    timer.reset();
+                }
+                break;
+
+            case SHOOTING_EXTEND:
+                // Step 2: Push the ball (Cam Out)
+                funnel.extend();
+
+                // Wait for the cam to fully extend and ball to launch
+                if (timer.milliseconds() > TIME_TO_EXTEND_MS) {
+                    state = State.SHOOTING_RETRACT;
+                    timer.reset();
+                }
+                break;
+
+            case SHOOTING_RETRACT:
+                // Step 3: Retract the ball (Cam In)
+                funnel.retract();
+
+                // Wait for cam to clear the chamber
+                if (timer.milliseconds() > TIME_TO_RETRACT_MS) {
+                    shotsFired++;
                     
-                    // Check for jam: funnel extended too long without ball clearing
-                    if (funnel.isExtended() && (timeSinceLastMove - funnelExtendStartTime) > jamDetectionTimeoutMs) {
-                        if (telemetry != null) telemetry.addData("AutoOuttake", "JAM DETECTED - Attempting recovery");
-                        jamRecoveryInProgress = true;
-                        funnel.retract();
-                        // Jiggle spindexer to clear jam
-                        if ((timeSinceLastMove - funnelExtendStartTime) > (jamDetectionTimeoutMs + 200)) {
-                            spindexer.goToPositionForCurrentMode((spindexer.getIndex() + 1) % 3);
-                            jamRecoveryInProgress = false;
-                        }
-                    }
-                    
-                    // Normal firing sequence: wait, extend funnel, wait, retract, move to next
-                    if (timeSinceLastMove < 200) {
-                        // Wait 200ms for spindexer to fully settle
-                        shooter.setTargetRPM(targetShooterRPM);
-                    } else if (timeSinceLastMove < 200 + funnelPushDurationMs && !jamRecoveryInProgress) {
-                        // Extend funnel to push ball
-                        if (!funnel.isExtended()) {
-                            funnel.extend();
-                            funnelExtendStartTime = System.currentTimeMillis();
-                        }
-                    } else if (timeSinceLastMove >= (200 + funnelPushDurationMs) && !jamRecoveryInProgress) {
-                        // Retract funnel and prepare for next position
-                        funnel.retract();
+                    if (shotsFired >= totalShotsToFire) {
+                        // All done? Go to cooldown
+                        state = State.COOLDOWN;
+                        timer.reset();
+                    } else {
+                        // More balls? Go to indexing
+                        state = State.INDEXING;
+                        timer.reset();
                         
-                        // Move to next position
-                        if (timeSinceLastMove >= (200 + funnelPushDurationMs + 100)) {
-                            shooter.stop();
-                            int nextIndex = (spindexer.getIndex() + 1) % 3;
-                            spindexer.goToPositionForCurrentMode(nextIndex);
-                            outtakePerformed++;
-                            stateStartTime = System.currentTimeMillis();
-                        }
+                        // Command the move immediately
+                        int nextIndex = (spindexer.getIndex() + 1) % 3;
+                        spindexer.goToPositionForCurrentMode(nextIndex);
                     }
                 }
+                break;
 
-                spindexer.update();
+            case INDEXING:
+                // Step 4: Rotate Spindexer to next slot
+                spindexer.update(); 
+
+                // Wait until we arrive at the new slot
+                boolean arrived = spindexer.isAtPosition() && !spindexer.isMoving();
+                boolean stuck = timer.milliseconds() > INDEX_TIMEOUT_MS;
+
+                if (arrived || stuck) {
+                    state = State.READY_TO_SHOOT; // Loop back to shoot the next ball
+                    timer.reset();
+                }
                 break;
 
             case COOLDOWN:
-                if (System.currentTimeMillis() - stateStartTime > cooldownMs) {
+                // Step 5: Finish up
+                shooter.stop();
+                funnel.retract();
+                spindexer.setIntakeMode(true); // Return to intake mode
+                
+                // Wait 1 second before allowing another auto-trigger
+                if (timer.milliseconds() > 1000) {
+                    colorSensor.clearRamp(); // Clear memory
                     state = State.IDLE;
-                    colorSensorSubsystem.clearRamp();
                 }
                 break;
         }
+        
+        // Always update spindexer logic in background (except when we are idle)
+        if (state != State.IDLE && state != State.COOLDOWN) {
+            spindexer.update();
+        }
+        
+        // Telemetry
+        if (telemetry != null) {
+            telemetry.addData("Auto State", state);
+            telemetry.addData("Shots", shotsFired + "/" + totalShotsToFire);
+        }
     }
 
-    // Configuration helpers
-    public void setScoreThreshold(int t) { scoreThreshold = t; }
-    public void setTargetShooterRPM(double rpm) { targetShooterRPM = rpm; }
-    public void setAutoEnabled(boolean enabled) { autoEnabled = enabled; }
-    
-    // State accessor
+    private void startOuttakeSequence(int detectedBallCount) {
+        // Cap shots at 3 (since Spindexer only holds 3)
+        this.totalShotsToFire = Math.min(3, detectedBallCount);
+        this.shotsFired = 0;
+        
+        // Start timers
+        this.totalStateTimer.reset();
+        this.timer.reset();
+        
+        this.state = State.PREPARING;
+    }
+
+    // --- Configuration Methods ---
+    public void updateMotif(ArtifactColor[] motif) {
+        this.currentMotif = motif;
+        this.colorSensor.setMotif(motif);
+    }
+
+    public void setScoreThreshold(int threshold) { this.scoreThreshold = threshold; }
+    public void setTargetShooterRPM(double rpm) { this.targetShooterRPM = rpm; }
     public State getState() { return state; }
-
-    /** Replace motif at runtime */
-    public void setMotif(ArtifactColor[] motif) {
-        colorSensorSubsystem.setMotif(motif);
-    }
 }
