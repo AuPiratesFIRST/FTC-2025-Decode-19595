@@ -54,6 +54,9 @@ public class OldSpindexerSubsystem {
     private boolean isSettling = false;
     private int settlingTarget = 0;
     private boolean mainTargetReached = false;
+    
+    // Tuning mode flag - disables ball settling logic during PID auto-tuning
+    private boolean tuningMode = false;
 
     // PID coefficients - tuned for smooth, damped motion without oscillations
     private double kP = 0.006;      // Lower kP to reduce "kick" as it reaches target
@@ -106,6 +109,18 @@ public class OldSpindexerSubsystem {
 
     public void setTestMode(boolean enabled) {
         testMode = enabled;
+    }
+    
+    /**
+     * Enable tuning mode to disable ball settling logic.
+     * When tuning mode is ON, the spindexer will not perform the automatic
+     * backward movement (BALL_SETTLE_TICKS) after reaching target position.
+     * This prevents interference with PID tuning metrics.
+     * 
+     * @param enabled True to enable tuning mode (disable settling), false for normal operation
+     */
+    public void setTuningMode(boolean enabled) {
+        this.tuningMode = enabled;
     }
 
     public void setPIDEnabled(boolean enabled) {
@@ -169,7 +184,9 @@ public class OldSpindexerSubsystem {
             return;
         }
 
-        if (!isSettling && !mainTargetReached && isAtPosition()) {
+        // Only run settling logic if NOT in tuning mode
+        // During PID tuning, we want pure PID behavior without the settling jiggle
+        if (!tuningMode && !isSettling && !mainTargetReached && isAtPosition()) {
             settlingTarget = targetPosition - BALL_SETTLE_TICKS;
             targetPosition = normalizeTicks(settlingTarget);
             isSettling = true;
@@ -343,7 +360,15 @@ public class OldSpindexerSubsystem {
         return normalized;
     }
 
-    private double shortestError(int target, int current) {
+    /**
+     * Calculate shortest angular error accounting for circular wrap-around.
+     * This is public so the Auto Tuner can correctly calculate error for circular motion.
+     * 
+     * @param target Target position in encoder ticks
+     * @param current Current position in encoder ticks
+     * @return Shortest error considering wrap-around (negative = backward, positive = forward)
+     */
+    public double shortestError(int target, int current) {
         // Normalize both target and current to 0-2150 range for consistent calculation
         int normalizedTarget = normalizeTicks(target);
         int normalizedCurrent = normalizeTicks(current);

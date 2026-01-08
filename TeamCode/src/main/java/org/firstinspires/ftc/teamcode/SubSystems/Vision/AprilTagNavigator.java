@@ -54,7 +54,7 @@ public class AprilTagNavigator {
     // classification was between two families. Values can be > 1.0 or < 0.2
     // inconsistently.
     // We use a low threshold to avoid filtering valid detections.
-    private final double MIN_DECISION_MARGIN = 30.0; // Minimum decision margin (not a confidence score)
+    private final double MIN_DECISION_MARGIN = 3.0; // Minimum decision margin (not a confidence score)
 
     // Camera position on robot
     // Camera is in the middle of the robot (x=0, y=0) and 9 3/8 inches off the

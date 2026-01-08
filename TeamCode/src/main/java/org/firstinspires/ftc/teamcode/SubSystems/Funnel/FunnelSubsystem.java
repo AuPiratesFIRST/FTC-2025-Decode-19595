@@ -1,180 +1,126 @@
 package org.firstinspires.ftc.teamcode.SubSystems.Funnel;
 
 import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.hardware.PwmControl; // Enable custom PWM range (REV Smart Servo 270° mode)
 import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.hardware.ServoImplEx; // Access advanced servo controls
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 
 /**
  * Funnel subsystem with two separate cams.
- * Since there are no gears, we handle the mirroring and synchronization here.
- *
- *
- * IMPORTANT: The servos face each other, so one must be reversed to ensure
- * both cams push the ball in the same direction (not opposing each other).
+ * NOW ENABLED FOR 270 DEGREE MODE ON REV SMART SERVOS.
+ * IMPORTANT: With the wider PWM range, 1.0 is ~270°; re-tune EXTEND so the cams do not hit the frame.
  */
 public class FunnelSubsystem {
 
+    // Use Servo for runtime control, but configure via ServoImplEx to unlock PWM range.
     private final Servo leftCam;
     private final Servo rightCam;
     private final Telemetry telemetry;
 
     // PHYSICAL CALIBRATION:
-    // Cams rarely use the full 0.0 to 1.0 range. 
-    // Adjust these values so the cams don't hit the robot frame.
-    // Start with conservative values (0.4-0.6) during testing, then expand to full range.
-    private static final double LEFT_RETRACT  = 0.1; 
-    private static final double LEFT_EXTEND   = 0.9;
+    // With PWM 500-2500 µs, 1.0 ≈ 270°. If your cams collide near 180°, drop EXTEND to ~0.66.
+    private static final double LEFT_RETRACT  = 0.0; 
+    private static final double LEFT_EXTEND   = 1.0; // Adjust if 270° is too far
     
-    private static final double RIGHT_RETRACT = 0.1; 
-    private static final double RIGHT_EXTEND  = 0.9;
+    private static final double RIGHT_RETRACT = 0.0; 
+    private static final double RIGHT_EXTEND  = 1.0; // Adjust if 270° is too far
     
     private boolean isExtended = false;
 
     /**
      * Initialize the funnel subsystem with two independent cam servos.
-     * 
-     * @param hardwareMap Hardware map from OpMode
-     * @param telemetry Telemetry for debugging
+     * Enables 270° mode and starts retracted for safety.
      */
     public FunnelSubsystem(HardwareMap hardwareMap, Telemetry telemetry) {
         this.telemetry = telemetry;
 
-        leftCam = hardwareMap.get(Servo.class, "leftCam");
-        rightCam = hardwareMap.get(Servo.class, "rightCam");
+        // 1) Get servos as ServoImplEx to access PWM controls
+        leftCam = hardwareMap.get(ServoImplEx.class, "leftCam");
+        rightCam = hardwareMap.get(ServoImplEx.class, "rightCam");
 
-        // MIRRORING: 
-        // If the servos face each other, one must be reversed so that 
-        // a single logical command moves both cams "Forward".
-        // Adjust this if testing shows the cams move in opposite directions.
+        // 2) Enable 270° mode (REV Smart Servo): widen PWM pulse range
+        ((ServoImplEx) leftCam).setPwmRange(new PwmControl.PwmRange(500, 2500));
+        ((ServoImplEx) rightCam).setPwmRange(new PwmControl.PwmRange(500, 2500));
+
+        // 3) Mirroring: servos face each other, so reverse one to push in the same direction
         rightCam.setDirection(Servo.Direction.REVERSE);
 
+        // 4) Start safe: ensure both cams are retracted on init
+        retract();
     }
 
-    /**
-     * Moves both cams forward to push the ball out of the spindexer.
-     * This is the active "firing" position.
-     */
+    /** Moves both cams forward to push the ball out of the spindexer. */
     public void extend() {
         leftCam.setPosition(LEFT_EXTEND);
         rightCam.setPosition(RIGHT_EXTEND);
         isExtended = true;
     }
 
-    /**
-     * Moves both cams back to the ready position.
-     * This is the idle state where cams are clear of the ball path.
-     */
+    /** Moves both cams back to the ready position (idle). */
     public void retract() {
         leftCam.setPosition(LEFT_RETRACT);
         rightCam.setPosition(RIGHT_RETRACT);
         isExtended = false;
     }
 
-    /**
-     * Toggle between extended and retracted positions.
-     * If currently extended, retracts. If retracted, extends.
-     */
+    /** Toggle between extended and retracted positions. */
     public void toggle() {
         if (isExtended) retract();
         else extend();
     }
 
-    /**
-     * Synchronization helper:
-     * Moves both cams to the same relative percentage of their travel range.
-     * Even without gears, we want them to move in sync.
-     * 
-     * @param normalized Position from 0.0 (fully retracted) to 1.0 (fully extended)
-     */
+    /** Synchronize both cams to the same normalized position (0.0–1.0). */
     public void setSyncPosition(double normalized) {
-        // Clamp input to valid range
         normalized = Math.max(0.0, Math.min(1.0, normalized));
-        
-        // Map 0.0-1.0 to the specific physical limits of each cam
+
         double lPos = LEFT_RETRACT + (normalized * (LEFT_EXTEND - LEFT_RETRACT));
         double rPos = RIGHT_RETRACT + (normalized * (RIGHT_EXTEND - RIGHT_RETRACT));
-        
+
         leftCam.setPosition(lPos);
         rightCam.setPosition(rPos);
         isExtended = normalized > 0.5;
     }
 
-    /**
-     * Set individual positions for left and right cams (overloaded version).
-     * Each position is normalized from 0.0 (fully retracted) to 1.0 (fully extended).
-     * 
-     * @param leftNormalized  Left cam position (0.0 to 1.0)
-     * @param rightNormalized Right cam position (0.0 to 1.0)
-     */
+    /** Overload: set individual normalized positions for left and right cams. */
     public void setSyncPosition(double leftNormalized, double rightNormalized) {
         setPositions(leftNormalized, rightNormalized);
     }
 
-    /**
-     * Set both cams to the same normalized position (0.0 to 1.0).
-     * This is an alias for setSyncPosition for convenience.
-     * 
-     * @param normalized Position from 0.0 (fully retracted) to 1.0 (fully extended)
-     */
+    /** Convenience alias for setSyncPosition. */
     public void setPosition(double normalized) {
         setSyncPosition(normalized);
     }
 
-    /**
-     * Set individual positions for left and right cams.
-     * Each position is normalized from 0.0 (fully retracted) to 1.0 (fully extended).
-     * 
-     * @param leftNormalized  Left cam position (0.0 to 1.0)
-     * @param rightNormalized Right cam position (0.0 to 1.0)
-     */
+    /** Set individual normalized positions for left and right cams. */
     public void setPositions(double leftNormalized, double rightNormalized) {
-        // Clamp inputs to valid range
         leftNormalized = Math.max(0.0, Math.min(1.0, leftNormalized));
         rightNormalized = Math.max(0.0, Math.min(1.0, rightNormalized));
-        
-        // Map 0.0-1.0 to the specific physical limits of each cam
+
         double lPos = LEFT_RETRACT + (leftNormalized * (LEFT_EXTEND - LEFT_RETRACT));
         double rPos = RIGHT_RETRACT + (rightNormalized * (RIGHT_EXTEND - RIGHT_RETRACT));
-        
+
         leftCam.setPosition(lPos);
         rightCam.setPosition(rPos);
         isExtended = (leftNormalized > 0.5 || rightNormalized > 0.5);
     }
 
-    /**
-     * Check if funnels are currently extended.
-     * 
-     * @return True if extended (pushing), false if retracted (idle)
-     */
     public boolean isExtended() {
         return isExtended;
     }
 
-    /**
-     * Get current position of left servo.
-     * 
-     * @return Position value (0.0 to 1.0)
-     */
     public double getLeftPosition() {
         return leftCam.getPosition();
     }
 
-    /**
-     * Get current position of right servo.
-     * 
-     * @return Position value (0.0 to 1.0)
-     */
     public double getRightPosition() {
         return rightCam.getPosition();
     }
 
-    /**
-     * Update telemetry with funnel information.
-     */
     public void updateTelemetry() {
         if (telemetry == null) return;
         telemetry.addData("Funnel State", isExtended ? "PUSHING" : "IDLE");
-        telemetry.addData("Cam Positions", "L:%.2f R:%.2f", 
+        telemetry.addData("Cam Positions", "L:%.2f R:%.2f",
                 leftCam.getPosition(), rightCam.getPosition());
     }
 }

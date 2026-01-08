@@ -31,6 +31,9 @@ public class ColorSensorSubsystem {
     private final List<ArtifactColor> detectedRamp = new ArrayList<>();
     private PatternScorer patternScorer;
 
+    // Track the detection state from the previous update loop
+    private ArtifactColor lastLoopDetectedColor = null;
+
     private static final int MAX_RAMP_SIZE = 9;
 
     /**
@@ -63,15 +66,26 @@ public class ColorSensorSubsystem {
         NormalizedRGBA colors = colorSensor.getNormalizedColors();
         Color.colorToHSV(colors.toColor(), hsvValues);
 
-        ArtifactColor mapped = mapHueToArtifact(hsvValues, colors);
+        // 1. Get the current instantaneous reading (Can be G, P, or null)
+        ArtifactColor currentReading = mapHueToArtifact(hsvValues, colors);
 
-        // Add to detected ramp if new
-        if (mapped != null) {
-            if (detectedRamp.isEmpty() || detectedRamp.get(detectedRamp.size() - 1) != mapped) {
-                detectedRamp.add(mapped);
-                while (detectedRamp.size() > MAX_RAMP_SIZE) detectedRamp.remove(0);
+        // 2. EDGE DETECTION LOGIC
+        // We only add to the list if we are seeing a color NOW, 
+        // AND we were NOT seeing this specific color in the previous loop.
+        if (currentReading != null) {
+            // Check if this is a "Rising Edge" (New object or color change)
+            if (lastLoopDetectedColor != currentReading) {
+                detectedRamp.add(currentReading);
+                
+                // Keep list size in check
+                while (detectedRamp.size() > MAX_RAMP_SIZE) {
+                    detectedRamp.remove(0);
+                }
             }
         }
+
+        // 3. Update the "Previous Loop" memory for the next cycle
+        lastLoopDetectedColor = currentReading;
 
         // Telemetry
         if (telemetry != null) {
@@ -79,13 +93,9 @@ public class ColorSensorSubsystem {
             telemetry.addData("Green", "%.3f", colors.green);
             telemetry.addData("Blue", "%.3f", colors.blue);
             telemetry.addData("Hue", "%.3f", hsvValues[0]);
-            telemetry.addData("Sat", "%.3f", hsvValues[1]);
-            telemetry.addData("Val", "%.3f", hsvValues[2]);
-            telemetry.addData("Alpha", "%.3f", colors.alpha);
-
-
-
-            telemetry.addData("MappedArtifact", mapped == null ? "UNKNOWN" : mapped.toString());
+            
+            telemetry.addData("Current Sight", currentReading == null ? "---" : currentReading.toString());
+            
             ArtifactColor[] rampArray = detectedRamp.toArray(new ArtifactColor[0]);
             telemetry.addData("DetectedRamp", PatternScorer.patternString(rampArray));
             telemetry.addData("PatternScore", "%d/%d",
@@ -102,6 +112,7 @@ public class ColorSensorSubsystem {
     /** Clears the detected ramp buffer */
     public void clearRamp() {
         detectedRamp.clear();
+        lastLoopDetectedColor = null; // Reset memory logic
     }
 
     /** Returns a copy of the detected ramp */

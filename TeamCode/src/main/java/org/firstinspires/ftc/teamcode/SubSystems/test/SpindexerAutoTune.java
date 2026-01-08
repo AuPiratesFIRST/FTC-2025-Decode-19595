@@ -518,21 +518,19 @@ public class SpindexerAutoTune extends LinearOpMode {
 
     private void finishTuning() {
         spindexer.setPIDCoefficients(bestP, bestD);
+        // Disable tuning mode so ball settling works again for actual operation
+        spindexer.setTuningMode(false);
         currentPhase = TuningPhase.COMPLETE;
     }
 
     // Run the test for the current PID coefficients
     // Tests all 3 positions in sequence (0→1→2) like real TeleOp usage
     private void startTest() {
-        // Use resetPIDOnly when balls are loaded (preserve encoder position)
-        // Use reset() when empty (can reset encoder)
-        boolean ballsLoaded = (currentPhase == TuningPhase.TUNING_D || 
-                              currentPhase == TuningPhase.TUNING_I);
-        if (ballsLoaded) {
-            spindexer.resetPIDOnly(); // Preserve encoder position with balls
-        } else {
-            spindexer.reset(); // Can reset encoder when empty
-        }
+        // --- FIX 1: STOP RESETTING ENCODERS ---
+        // We only want to reset internal PID variables (error, integral),
+        // NEVER the hardware encoder position itself during a tuning session.
+        // Resetting encoders loses position tracking across the 3-position sequence.
+        spindexer.resetPIDOnly();
         sleep(200);
 
         // Intake control: OFF for P tuning, ON for D/I tuning (per WPI recommendations)
@@ -545,13 +543,12 @@ public class SpindexerAutoTune extends LinearOpMode {
             intake.setPower(0);
         }
 
-        // Set mode (intake mode like TeleOp)
+        // --- FIX 2: ENABLE TUNING MODE ---
+        // Prevent the subsystem from doing its "Ball Settling" jiggle
+        // When in tuning mode, ball settling is disabled so the tuner sees pure PID response
+        spindexer.setTuningMode(true);
         spindexer.setIntakeMode(intakeMode);
-
-        // Ensure PID is enabled
         spindexer.setPIDEnabled(true);
-        
-        // Reset PID state - ensure clean slate (I removed, always 0)
         spindexer.setPIDCoefficients(currentP, currentD);
         
         // Start at position 0, will cycle through 0→1→2
@@ -590,7 +587,13 @@ public class SpindexerAutoTune extends LinearOpMode {
     private void runTest() {
         int current = spindexer.getCurrentPosition();
         int target = spindexer.getTargetPosition();
-        double error = current - target;
+        
+        // --- FIX 3: USE CIRCULAR ERROR ---
+        // Use the subsystem's logic to calculate shortest path error
+        // appropriately for a circle (handling the 0/2150 wrap-around).
+        // Without this, errors from wrap-around (e.g., 1400 when moving 2150→0)
+        // will look like failures to the tuner.
+        double error = spindexer.shortestError(target, current);
         double absError = Math.abs(error);
 
         // Track overshoot ONLY after we've crossed the target
