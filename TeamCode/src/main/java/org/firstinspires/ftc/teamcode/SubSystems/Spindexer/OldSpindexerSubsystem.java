@@ -24,17 +24,19 @@ public class OldSpindexerSubsystem {
     private static final int[] OUTTAKE_POSITIONS = { 2060, 1885, 1716 };
 
     // PID Coefficients
-    private double kP = 0.008; // Increased slightly for more "bite"
-    private double kI = 0.0001; // NEW: The "Active Hold" term that fights back
+    private double kP = 0.008; 
+    private double kI = 0.0001; // The Active Hold Force
     private double kD = 0.0008;
 
     private double lastError = 0;
-    private double integralSum = 0; // NEW: Tracks resistance over time
+    private double integralSum = 0;
     private boolean hasPrevError = false;
     private int targetPosition = 0;
 
     private static final int POSITION_TOLERANCE = 15;
-    private static final double SPEED_MULTIPLIER = 0.85; // Increased slightly for outtake holding
+    
+    // UPDATED: Speed set to 0.75 for torque and smoothness
+    private static final double SPEED_MULTIPLIER = 0.75;
 
     private boolean pidEnabled = false;
     private boolean tuningMode = false;
@@ -64,8 +66,6 @@ public class OldSpindexerSubsystem {
         spindexerMotor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
     }
 
-    // === COMPATIBILITY METHODS ===
-
     public int getIndex() {
         double d1 = Math.abs(shortestError(POSITION_1_TICKS, targetPosition));
         double d2 = Math.abs(shortestError(POSITION_2_TICKS, targetPosition));
@@ -84,7 +84,6 @@ public class OldSpindexerSubsystem {
         this.kD = d;
     }
 
-    // NEW: Overload to support kI tuning
     public void setPIDCoefficients(double p, double i, double d) {
         this.kP = p;
         this.kI = i;
@@ -96,7 +95,7 @@ public class OldSpindexerSubsystem {
         telemetry.addData("Spindexer Target", targetPosition);
         telemetry.addData("Spindexer Current", spindexerMotor.getCurrentPosition());
         telemetry.addData("Spindexer Error", "%.1f", shortestError(targetPosition, spindexerMotor.getCurrentPosition()));
-        telemetry.addData("Hold Power", "%.2f", spindexerMotor.getPower());
+        telemetry.addData("Active Hold Power", "%.2f", spindexerMotor.getPower());
     }
 
     public void goToPosition(int index) {
@@ -113,8 +112,6 @@ public class OldSpindexerSubsystem {
         setPIDEnabled(true);
     }
 
-    // === CORE LOGIC ===
-
     public void reset() {
         spindexerMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         spindexerMotor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
@@ -129,18 +126,9 @@ public class OldSpindexerSubsystem {
         hasPrevError = false;
     }
 
-    public int getCurrentPosition() {
-        return spindexerMotor.getCurrentPosition();
-    }
-
-    public int getTargetPosition() {
-        return targetPosition;
-    }
-
-    public void setTuningMode(boolean enabled) {
-        this.tuningMode = enabled;
-    }
-
+    public int getCurrentPosition() { return spindexerMotor.getCurrentPosition(); }
+    public int getTargetPosition() { return targetPosition; }
+    public void setTuningMode(boolean enabled) { this.tuningMode = enabled; }
     public boolean isSettling() { return false; }
 
     public void setPIDEnabled(boolean enabled) {
@@ -162,29 +150,20 @@ public class OldSpindexerSubsystem {
         setPIDEnabled(true);
     }
 
-    /**
-     * Updated Update Method: Active Holding
-     */
     public void update() {
         if (!pidEnabled) return;
 
         int currentPosition = spindexerMotor.getCurrentPosition();
         double error = shortestError(targetPosition, currentPosition);
 
-        // We REMOVED the "if error < tolerance then power 0" block.
-        // This keeps the motor active so it fights back if pushed.
-
         if (!hasPrevError) {
             lastError = error;
             hasPrevError = true;
         }
 
-        // Calculate Integral (Active Hold force)
-        // If we are pushed away, integralSum grows and pushes back harder.
+        // Active Hold Calculation
         integralSum += error;
-
-        // Anti-windup: Prevents the motor from spinning infinitely if physically stuck
-        integralSum = Range.clip(integralSum, -0.2 / kI, 0.2 / kI);
+        integralSum = Range.clip(integralSum, -0.25 / (kI + 1e-9), 0.25 / (kI + 1e-9));
 
         double derivative = (error - lastError) * kD;
         lastError = error;
@@ -201,8 +180,6 @@ public class OldSpindexerSubsystem {
     }
 
     public boolean isMoving() {
-        // Even if we are "AtPosition", we might still be applying power to hold it.
-        // We only report "moving" if the error is significant.
         return pidEnabled && Math.abs(shortestError(targetPosition, spindexerMotor.getCurrentPosition())) > POSITION_TOLERANCE;
     }
 
@@ -223,16 +200,12 @@ public class OldSpindexerSubsystem {
 
     public void setIntakeMode(boolean intake) { this.intakeMode = intake; }
     public boolean getIntakeMode() { return intakeMode; }
-
     public void goToPositionForCurrentMode(int index) {
         int ticks = intakeMode ? INTAKE_POSITIONS[index] : OUTTAKE_POSITIONS[index];
         targetPosition = normalizeTicks(ticks);
         setPIDEnabled(true);
     }
-
-    public void rotateToMotifStartPosition(ArtifactColor[] motif) {
-        goToPositionForCurrentMode(0);
-    }
+    public void rotateToMotifStartPosition(ArtifactColor[] motif) { goToPositionForCurrentMode(0); }
 
     public static double getRecommendedManualPowerMultiplier() { return 0.75; }
 }

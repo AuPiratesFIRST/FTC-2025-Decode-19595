@@ -39,13 +39,13 @@ public class AprilTagNavigator {
 
     private final double MIN_DETECTION_DISTANCE = 1.0;
     private final double MAX_DETECTION_DISTANCE = 250;
-    private final double MIN_DECISION_MARGIN = 0.5;
+    private final double MIN_DECISION_MARGIN = 0.15;
 
     private static final double CAMERA_HEIGHT = 9.375;
 
     // Fast settings for long-range stability
     private int cameraExposureMs = 3;
-    private int cameraGain = 160;
+    private int cameraGain = 120;
     private boolean cameraControlsSet = false;
 
     public AprilTagNavigator(DriveSubsystem driveSubsystem, HardwareMap hardwareMap, Telemetry telemetry) {
@@ -67,7 +67,7 @@ public class AprilTagNavigator {
                 .build();
 
         // FIX: Documentation shows setDecimation is on the Processor, not the Builder
-        aprilTag.setDecimation(1.0f);
+        aprilTag.setDecimation(2.0f);
 
         visionPortal = new VisionPortal.Builder()
                 .setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"))
