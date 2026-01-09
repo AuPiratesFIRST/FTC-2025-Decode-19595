@@ -3,9 +3,6 @@ package org.firstinspires.ftc.teamcode.SubSystems.test;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.NormalizedColorSensor;
-import org.firstinspires.ftc.robotcore.external.JavaUtil;
-import org.firstinspires.ftc.teamcode.SubSystems.Sensors.ColorSensorSubsystem;
-import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem;
@@ -16,7 +13,8 @@ import org.firstinspires.ftc.teamcode.SubSystems.Vision.ObeliskMotifDetector;
 import org.firstinspires.ftc.teamcode.SubSystems.Scoring.AutoOuttakeController;
 import org.firstinspires.ftc.teamcode.SubSystems.Scoring.ArtifactColor;
 import org.firstinspires.ftc.teamcode.SubSystems.Funnel.FunnelSubsystem;
-
+import org.firstinspires.ftc.teamcode.SubSystems.Sensors.ColorSensorSubsystem;
+import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 
 @TeleOp(name = "Red Alliance TeleOp TEST", group = "TeleOp")
 public class RedAllianceTeleOpTest extends LinearOpMode {
@@ -30,7 +28,6 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     }
 
     // === CONSTANTS ===
-    // Default field pattern (PGP / ID 22). Change here if event field differs.
     private static final ArtifactColor[] DEFAULT_MOTIF = {
             ArtifactColor.PURPLE, ArtifactColor.GREEN, ArtifactColor.PURPLE
     };
@@ -43,8 +40,8 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private static final double MAX_AUTO_POWER = 0.40;
     private static final double POSITION_DEADBAND = 0.75;
     private static final double ANGLE_DEADBAND_DEG = 1.5;
-    
-    private static final double SHOOTER_TARGET_RPM = 5220.0;
+
+    private static final double SHOOTER_TARGET_RPM = 5225.0;
     private static final int TARGET_TAG_ID = 24;
 
     // === SUBSYSTEMS ===
@@ -64,9 +61,8 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private boolean shooterManualToggle = false;
     private boolean intakeMode = true;
     private double driveSpeed = 1.0;
-    
-    // Funnel State (Toggle)
     private boolean funnelActive = false;
+    private boolean spindexerManualMoving = false;
 
     // === INPUT LATCHES ===
     private boolean lastInputX = false;
@@ -77,11 +73,11 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private boolean lastInputStart = false;
     private boolean lastInputA = false;
     private boolean lastInputB = false;
-    private boolean lastInputFunnel = false; // Added for Funnel
+    private boolean lastInputFunnel = false;
 
     @Override
     public void runOpMode() {
-        // 1. Initialize Subsystems
+        // --- 1. SUBSYSTEM INITIALIZATION ---
         drive = new DriveSubsystem(hardwareMap, telemetry);
         intake = new IntakeSubsystem(hardwareMap, telemetry);
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
@@ -89,7 +85,6 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
         funnel = new FunnelSubsystem(hardwareMap, telemetry);
 
-        // 2. Initialize Vision/Color
         ArtifactColor[] motif = DEFAULT_MOTIF;
 
         try {
@@ -97,113 +92,86 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
             colorSensorSubsystem = new ColorSensorSubsystem(normColor, null, telemetry, motif);
         } catch (Exception e) {
             colorSensorSubsystem = null;
-            telemetry.addData("ColorSensor", "Not found");
         }
 
         obeliskDetector = new ObeliskMotifDetector(aprilTag, telemetry);
 
-        // 3. Initialize Auto Outtake
         if (colorSensorSubsystem != null) {
             autoOuttake = new AutoOuttakeController(colorSensorSubsystem, motif, spindexer, shooter, funnel, telemetry);
             autoOuttake.setScoreThreshold(6);
             autoOuttake.setTargetShooterRPM(SHOOTER_TARGET_RPM);
         }
 
-        telemetry.addData("Status", "Initialized - RED ALLIANCE FINAL");
-        telemetry.update();
-
-        // 4. Scan during Init
-        long initStart = System.currentTimeMillis();
-        while (!isStarted() && !isStopRequested() && System.currentTimeMillis() - initStart < 3000) {
-            obeliskDetector.update();
-            telemetry.update();
-            sleep(50);
-        }
-
         waitForStart();
 
-        // 5. Final Motif Check
+        // Detect motif once at start
         ArtifactColor[] detectedMotif = obeliskDetector.getMotif();
         if (detectedMotif == null) detectedMotif = DEFAULT_MOTIF;
         if (autoOuttake != null) autoOuttake.updateMotif(detectedMotif);
 
-        // === MAIN LOOP ===
         while (opModeIsActive()) {
-            updateInputTracking();
-            updateRobotState();
-            
-            executeDrive();
-            executeIntake();
-            executeSpindexerAndShooter();
-            executeFunnel(); // <--- ADDED THIS
-
+            // --- 2. UPDATE SENSORS & GLOBAL SYSTEMS ---
             shooter.updateVoltageCompensation();
             obeliskDetector.update();
             aprilTag.initializeCameraControls();
             if (autoOuttake != null) autoOuttake.update();
 
+            // --- 3. INPUT TRACKING & STATE TRANSITIONS ---
+            updateInputTracking();
+            updateStateTransitions();
+
+            // --- 4. EXECUTE STATE LOGIC ---
+            executeStateActions();
+
+            // --- 5. PERIPHERAL SYSTEMS ---
+            executeDrive();
+            executeIntake();
+            executeFunnel();
+
+            // --- 6. TELEMETRY ---
             updateTelemetry();
         }
 
+        // --- SHUTDOWN ---
         drive.stop();
         intake.stop();
         shooter.stop();
         aprilTag.closeVision();
     }
 
-    // =========================================================
-    // SECTION 1: INPUT TRACKING
-    // =========================================================
     private void updateInputTracking() {
-        
-        // Manual Mode Toggle
+        // Manual Override Toggle
         if (gamepad2.x && !lastInputX) {
-            currentMode = (currentMode == RobotMode.MANUAL_OVERRIDE) ? RobotMode.INTAKE : RobotMode.MANUAL_OVERRIDE;
+            if (currentMode == RobotMode.MANUAL_OVERRIDE) {
+                currentMode = RobotMode.INTAKE;
+            } else {
+                currentMode = RobotMode.MANUAL_OVERRIDE;
+                spindexer.lockCurrentPosition();
+            }
         }
         lastInputX = gamepad2.x;
 
-        // Intake/Outtake Toggle
-        if (gamepad2.dpad_down && !lastInputDpadDown && currentMode != RobotMode.MANUAL_OVERRIDE) {
-            intakeMode = !intakeMode;
-            spindexerIndex = 0;
-            spindexer.setIntakeMode(intakeMode);
-        }
-        lastInputDpadDown = gamepad2.dpad_down;
-
-        // Shooter Manual Toggle
-        if (gamepad2.right_bumper && !lastInputRB) {
-            shooterManualToggle = !shooterManualToggle;
-        }
-        lastInputRB = gamepad2.right_bumper;
-
-        // Funnel Toggle (Right Trigger treated as button)
-        boolean funnelPressed = gamepad2.right_trigger > 0.5;
-        if (funnelPressed && !lastInputFunnel) {
-            funnelActive = !funnelActive; // Flip state
-        }
-        lastInputFunnel = funnelPressed;
-
-        // Drive Speed
+        // Drive Controls
         if (gamepad1.a) driveSpeed = 1.0;
         if (gamepad1.b) driveSpeed = 0.5;
-
-        // IMU Reset
-        if (gamepad1.start && !lastInputStart) {
-            drive.resetHeading();
-        }
+        if (gamepad1.start && !lastInputStart) drive.resetHeading();
         lastInputStart = gamepad1.start;
+
+        // Shooter & Funnel Latches
+        if (gamepad2.right_bumper && !lastInputRB) shooterManualToggle = !shooterManualToggle;
+        lastInputRB = gamepad2.right_bumper;
+
+        boolean funnelPressed = gamepad2.right_trigger > 0.5;
+        if (funnelPressed && !lastInputFunnel) funnelActive = !funnelActive;
+        lastInputFunnel = funnelPressed;
     }
 
-    // =========================================================
-    // SECTION 2: ROBOT STATE
-    // =========================================================
-    private void updateRobotState() {
-        if (autoOuttake != null && autoOuttake.getState() != AutoOuttakeController.State.IDLE) {
-            return;
-        }
+    private void updateStateTransitions() {
+        // If AutoOuttake is running, it owns the state. Do not allow manual changes.
+        if (autoOuttake != null && autoOuttake.getState() != AutoOuttakeController.State.IDLE) return;
 
+        // Handle Manual Mode D-Pad movement separately
         if (currentMode == RobotMode.MANUAL_OVERRIDE) {
-            // Manual Indexing
             if (gamepad2.dpad_left && !lastInputDpadLeft) {
                 spindexerIndex = (spindexerIndex - 1 + 3) % 3;
                 spindexer.goToPosition(spindexerIndex);
@@ -212,90 +180,119 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
                 spindexerIndex = (spindexerIndex + 1) % 3;
                 spindexer.goToPosition(spindexerIndex);
             }
-        } else {
-            // Auto Indexing
-            if (gamepad2.b && !lastInputB) {
-                ArtifactColor[] detected = obeliskDetector.getMotif();
-                if (detected == null) detected = DEFAULT_MOTIF;
-                
-                spindexer.setIntakeMode(false);
-                spindexer.rotateToMotifStartPosition(detected);
-                spindexerIndex = OldSpindexerSubsystem.getStartingPositionFromMotif(detected);
-                currentMode = RobotMode.SHOOTING_SETUP;
-            }
-
-            if (gamepad2.a && !lastInputA) {
-                spindexerIndex = (spindexerIndex + 1) % 3;
-                spindexer.goToPositionForCurrentMode(spindexerIndex);
-                currentMode = RobotMode.SHOOTING_SETUP;
-            }
-
-            if (currentMode == RobotMode.SHOOTING_SETUP && spindexer.isAtPosition()) {
-                currentMode = RobotMode.SHOOTING_READY;
-            }
+            updateInternalLatches();
+            return;
         }
 
+        // --- Standard State Transitions ---
+
+        // RESET: Return to Intake
+        if (gamepad2.dpad_down && !lastInputDpadDown) {
+            intakeMode = true;
+            spindexerIndex = 0;
+            spindexer.setIntakeMode(true);
+            currentMode = RobotMode.INTAKE;
+        }
+
+        // START SHOOTING: Rotate to Motif
+        if (gamepad2.b && !lastInputB) {
+            ArtifactColor[] detected = obeliskDetector.getMotif();
+            intakeMode = false;
+            spindexer.setIntakeMode(false);
+            spindexer.rotateToMotifStartPosition(detected != null ? detected : DEFAULT_MOTIF);
+            spindexerIndex = 0;
+            currentMode = RobotMode.SHOOTING_SETUP;
+        }
+
+        // NEXT SLOT: Manual Indexing
+        if (gamepad2.a && !lastInputA) {
+            intakeMode = false;
+            spindexer.setIntakeMode(false);
+            spindexerIndex = (spindexerIndex + 1) % 3;
+            spindexer.goToPositionForCurrentMode(spindexerIndex);
+            currentMode = RobotMode.SHOOTING_SETUP;
+        }
+
+        // AUTO TRANSITION: SETUP -> READY
+        if (currentMode == RobotMode.SHOOTING_SETUP && spindexer.isAtPosition()) {
+            currentMode = RobotMode.SHOOTING_READY;
+        }
+
+        updateInternalLatches();
+    }
+
+    private void updateInternalLatches() {
         lastInputA = gamepad2.a;
         lastInputB = gamepad2.b;
+        lastInputDpadDown = gamepad2.dpad_down;
         lastInputDpadLeft = gamepad2.dpad_left;
         lastInputDpadRight = gamepad2.dpad_right;
     }
 
-    // =========================================================
-    // SECTION 3: HARDWARE EXECUTION
-    // =========================================================
+    private void executeStateActions() {
+        // Skip execution if AutoOuttake is managing subsystems
+        if (autoOuttake != null && autoOuttake.getState() != AutoOuttakeController.State.IDLE) return;
 
-    private void executeFunnel() {
-        // STANDARD SERVO LOGIC:
-        // True  = Extend (Push cam out)
-        // False = Retract (Return to rest)
-        if (funnelActive) {
-            funnel.extend();
-        } else {
-            funnel.retract();
+        switch (currentMode) {
+            case INTAKE:
+                spindexer.update();
+                handleShooterLogic(false);
+                break;
+
+            case SHOOTING_SETUP:
+                spindexer.update();
+                // We keep shooter off while spindexer is making large moves
+                handleShooterLogic(false);
+                break;
+
+            case SHOOTING_READY:
+                spindexer.update();
+                handleShooterLogic(true);
+                break;
+
+            case MANUAL_OVERRIDE:
+                handleManualSpindexerStick();
+                // Allow manual trigger/bumper firing in manual mode
+                handleShooterLogic(gamepad2.y || shooterManualToggle);
+                break;
         }
     }
 
-    private void executeSpindexerAndShooter() {
-        // Spindexer
-        if (currentMode == RobotMode.MANUAL_OVERRIDE) {
-            float manualPower = -gamepad2.right_stick_y;
-            if (Math.abs(manualPower) > 0.1) {
-                spindexer.setManualPower(manualPower * OldSpindexerSubsystem.getRecommendedManualPowerMultiplier());
-            } else {
-                spindexer.setManualPower(0);
-            }
+    private void handleManualSpindexerStick() {
+        float manualPower = -gamepad2.right_stick_y;
+        if (Math.abs(manualPower) > 0.1) {
+            spindexer.setManualPower(manualPower * OldSpindexerSubsystem.getRecommendedManualPowerMultiplier());
+            spindexerManualMoving = true;
+        } else if (spindexerManualMoving) {
+            spindexer.lockCurrentPosition();
+            spindexerManualMoving = false;
+        }
+        spindexer.update();
+    }
+
+    private void handleShooterLogic(boolean stateWantsSpin) {
+        // Priority: If Spindexer is actively rotating, force shooter off (safety/battery)
+        // Unless we are in manual mode or have a manual toggle override.
+        if (spindexer.isMoving() && !shooterManualToggle && currentMode != RobotMode.MANUAL_OVERRIDE) {
+            stateWantsSpin = false;
+        }
+
+        if (stateWantsSpin || shooterManualToggle || gamepad2.y) {
+            shooter.setTargetRPM(SHOOTER_TARGET_RPM);
         } else {
-            spindexer.update();
+            shooter.stop();
         }
-
-        // Shooter
-        boolean shouldSpin = false;
-        if (shooterManualToggle) shouldSpin = true;
-        if (gamepad2.y) shouldSpin = true; // Spin while holding Align
-        if (currentMode == RobotMode.SHOOTING_READY && !intakeMode) shouldSpin = true;
-
-        // Safety
-        if (spindexer.isMoving() && !shooterManualToggle) {
-            shouldSpin = false;
-        }
-
-        if (shouldSpin) shooter.setTargetRPM(SHOOTER_TARGET_RPM);
-        else shooter.stop();
     }
 
     private void executeDrive() {
-        // Auto Align
         if (gamepad2.y) {
             aprilTag.updateRobotPositionFromAllianceGoals();
             AprilTagDetection tag = aprilTag.getBestAllianceGoalDetection();
-            
             if (tag != null && tag.id == TARGET_TAG_ID) {
                 double[] corrections = aprilTag.calculateAlignmentCorrections(
                         tag, DESIRED_SHOOTING_DISTANCE, DESIRED_SHOOTING_ANGLE,
                         POSITION_DEADBAND, POSITION_DEADBAND, ANGLE_DEADBAND_DEG,
                         KP_STRAFE, KP_FORWARD, KP_ROT, MAX_AUTO_POWER);
-                
                 if (corrections != null) {
                     drive.drive(corrections[1], corrections[0], corrections[2]);
                     return;
@@ -303,18 +300,13 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
             }
         }
 
-        // Manual Drive
         float forward = gamepad1.left_stick_y + gamepad1.right_stick_y;
         float strafe = -gamepad1.left_stick_x;
         float turn = -gamepad1.right_stick_x;
-        double denominator = JavaUtil.maxOfList(JavaUtil.createListWith(0.5, 0.5 + Math.abs(turn)));
-        
-        if (gamepad2.y) turn = 0; // Lock heading while aligning
+        if (gamepad2.y) turn = 0;
 
-        drive.drive(
-                (forward / denominator) * driveSpeed,
-                (strafe / denominator) * driveSpeed,
-                (turn / denominator) * driveSpeed);
+        double denominator = Math.max(1.0, 0.5 + Math.abs(turn));
+        drive.drive((forward / denominator) * driveSpeed, (strafe / denominator) * driveSpeed, (turn / denominator) * driveSpeed);
     }
 
     private void executeIntake() {
@@ -323,17 +315,18 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         else intake.setPower(0);
     }
 
-    // =========================================================
-    // SECTION 4: TELEMETRY
-    // =========================================================
+    private void executeFunnel() {
+        if (funnelActive) funnel.extend();
+        else funnel.retract();
+    }
+
     private void updateTelemetry() {
-        telemetry.addData("Mode", currentMode.toString());
-        telemetry.addData("Intake", intakeMode ? "INTAKE" : "OUTTAKE");
-        telemetry.addData("Shooter Manual", shooterManualToggle);
+        telemetry.addData("--- SYSTEM STATE ---", "");
+        telemetry.addData("Current Mode", currentMode);
         telemetry.addData("Spindexer Index", spindexerIndex);
-        telemetry.addData("RPM", "%.0f / %.0f", shooter.getCurrentRPM(), shooter.getTargetRPM());
-        telemetry.addData("Spindexer At Position", spindexer.isAtPosition());
+        telemetry.addData("Spindexer Moving", spindexer.isMoving());
+        telemetry.addData("Shooter RPM", "%.0f / %.0f", shooter.getCurrentRPM(), shooter.getTargetRPM());
+        telemetry.addData("Manual Lock", spindexerManualMoving ? "USER CONTROL" : "LOCKED");
         telemetry.update();
     }
 }
-

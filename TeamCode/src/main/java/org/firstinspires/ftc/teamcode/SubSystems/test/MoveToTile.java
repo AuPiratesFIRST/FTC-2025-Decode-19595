@@ -7,6 +7,8 @@ import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.bylazar.configurables.PanelsConfigurables;
 import com.bylazar.configurables.annotations.Configurable;
 import com.bylazar.configurables.annotations.IgnoreConfigurable;
+// FIX 1: Import FieldManager
+import com.bylazar.field.FieldManager;
 import com.bylazar.field.PanelsField;
 import com.bylazar.telemetry.JoinedTelemetry;
 import com.bylazar.telemetry.PanelsTelemetry;
@@ -22,43 +24,41 @@ public class MoveToTile extends LinearOpMode {
     // === CONFIGURABLES (Editable live in Panels) ===
     public char targetColumn = 'C';
     public int targetRow = 3;
-    public double targetOffsetX = 12.0; 
-    public double targetOffsetY = 12.0; 
-    public double movePower = 0.5; 
-    public boolean autoMove = false; 
-    public double positionTolerance = 6.0; 
+    public double targetOffsetX = 12.0;
+    public double targetOffsetY = 12.0;
+    public double movePower = 0.5;
+    public boolean autoMove = false;
+    public double positionTolerance = 6.0;
 
     // === SUBSYSTEMS ===
     @IgnoreConfigurable
     private DriveSubsystem driveSubsystem;
-    
+
     @IgnoreConfigurable
     private AprilTagNavigator navigator;
-    
+
     // === PANELS OBJECTS ===
     @IgnoreConfigurable
-    private PanelsField panelsField;
-    
+    // FIX 2: Change type from PanelsField to FieldManager
+    private FieldManager panelsField;
+
     @IgnoreConfigurable
-    private JoinedTelemetry telemetryM; // "M" for Multi/Manager
+    private JoinedTelemetry telemetryM;
 
     // === STATE ===
     @IgnoreConfigurable
     private TileCoordinate currentTarget;
-    
+
     @IgnoreConfigurable
     private boolean isMoving = false;
-    
+
     @IgnoreConfigurable
     private TileCoordinate lastTarget = null;
 
     @Override
     public void runOpMode() throws InterruptedException {
-        // 1. Initialize Joined Telemetry (Sends to both Driver Station & Panels)
-        // Accessing the singleton instance via INSTANCE.getFtcTelemetry()
         telemetryM = new JoinedTelemetry(PanelsTelemetry.INSTANCE.getFtcTelemetry(), telemetry);
 
-        // 2. Initialize Subsystems
         driveSubsystem = null;
         try {
             driveSubsystem = new DriveSubsystem(hardwareMap, telemetry);
@@ -67,17 +67,16 @@ public class MoveToTile extends LinearOpMode {
         }
 
         navigator = new AprilTagNavigator(driveSubsystem, hardwareMap, telemetry);
-        
-        // 3. Initialize Panels Field
-        panelsField = PanelsField.INSTANCE.getField();
-        // Set coordinate system to Standard FTC (Center is 0,0)
-        panelsField.setOffsets(PanelsField.presets.DEFAULT_FTC);
 
-        // 4. Register Configurables
+        // FIX 3: Correct initialization using Getters and Singleton Instance
+        panelsField = PanelsField.INSTANCE.getField();
+
+        // FIX 4: Correct Presets access using Getters
+        panelsField.setOffsets(PanelsField.INSTANCE.getPresets().getDEFAULT_FTC());
+
         PanelsConfigurables.INSTANCE.refreshClass(this);
 
         if (driveSubsystem != null) {
-            // Set starting pose (center of A1, facing +X)
             driveSubsystem.setPosition(new TileCoordinate('A', 1, 12, 12));
             driveSubsystem.setHeading(0.0);
         }
@@ -91,34 +90,26 @@ public class MoveToTile extends LinearOpMode {
         waitForStart();
 
         while (opModeIsActive()) {
-            // --- LOGIC ---
-            
-            // Localization
             boolean updated = false;
             if (!updated) updated = navigator.updateRobotPositionFromTriangulation();
             if (!updated) updated = navigator.updateRobotPositionFromAllianceGoals();
             if (!updated) updated = navigator.updateRobotPosition();
 
-            // Config Updates
             updateTargetTile();
 
-            // Auto-Trigger
             if (autoMove && currentTarget != null && !currentTarget.equals(lastTarget)) {
                 startMovingToTarget();
                 lastTarget = currentTarget;
             }
 
-            // Manual Trigger
             if (gamepad1.a && !isMoving && currentTarget != null) {
                 startMovingToTarget();
             }
 
-            // Movement Execution
             if (isMoving && currentTarget != null) {
                 updateMovement();
             }
 
-            // Manual Override
             if (Math.abs(gamepad1.left_stick_y) > 0.1 || Math.abs(gamepad1.left_stick_x) > 0.1 || Math.abs(gamepad1.right_stick_x) > 0.1) {
                 isMoving = false;
                 if (driveSubsystem != null) {
@@ -128,7 +119,6 @@ public class MoveToTile extends LinearOpMode {
                 driveSubsystem.stop();
             }
 
-            // --- VISUALIZATION ---
             drawField();
             updateTelemetry();
 
@@ -145,7 +135,7 @@ public class MoveToTile extends LinearOpMode {
         targetOffsetX = Math.max(0, Math.min(24, targetOffsetX));
         targetOffsetY = Math.max(0, Math.min(24, targetOffsetY));
         movePower = Math.max(0, Math.min(1, movePower));
-        
+
         currentTarget = new TileCoordinate(targetColumn, targetRow, targetOffsetX, targetOffsetY);
     }
 
@@ -175,11 +165,11 @@ public class MoveToTile extends LinearOpMode {
         double turnAngle = angle - currentHeading;
         while (turnAngle > Math.PI) turnAngle -= 2 * Math.PI;
         while (turnAngle < -Math.PI) turnAngle += 2 * Math.PI;
-        
+
         double forward = Math.cos(angle) * movePower;
         double strafe = Math.sin(angle) * movePower;
         double turn = Math.signum(turnAngle) * Math.min(Math.abs(turnAngle) / Math.PI, 1.0) * movePower * 0.5;
-        
+
         driveSubsystem.drive(forward, strafe, turn);
     }
 
@@ -188,37 +178,31 @@ public class MoveToTile extends LinearOpMode {
 
         TileCoordinate pos = driveSubsystem.getCurrentPosition();
         double heading = driveSubsystem.getCurrentHeading();
-        
+
         if (pos != null) {
-            // Conversion: Tile (0 to 144) -> Panels Center (-72 to 72)
             double fx = pos.getX() - 72.0;
             double fy = pos.getY() - 72.0;
 
-            // 1. Draw Robot
             panelsField.moveCursor(fx, fy);
-            panelsField.setStyle("none", "#00AA00", 2.0); 
-            panelsField.circle(9.0); // 18 inch robot
+            panelsField.setStyle("none", "#00AA00", 2.0);
+            panelsField.circle(9.0);
 
-            // 2. Draw Heading
             double arrowLen = 12.0;
             double headX = fx + Math.cos(heading) * arrowLen;
             double headY = fy + Math.sin(heading) * arrowLen;
             panelsField.moveCursor(fx, fy);
             panelsField.line(headX, headY);
 
-            // 3. Draw Target
             if (currentTarget != null) {
                 double tx = currentTarget.getX() - 72.0;
                 double ty = currentTarget.getY() - 72.0;
 
-                // Path Line
                 panelsField.moveCursor(fx, fy);
                 panelsField.setStyle("none", "#FFFF00", 1.0);
                 panelsField.line(tx, ty);
 
-                // Target Box
                 panelsField.moveCursor(tx, ty);
-                panelsField.setStyle("#33FF0000", "#FF0000", 2.0); 
+                panelsField.setStyle("#33FF0000", "#FF0000", 2.0);
                 panelsField.rect(24.0, 24.0);
             }
 
@@ -228,25 +212,25 @@ public class MoveToTile extends LinearOpMode {
 
     private void updateTelemetry() {
         telemetryM.addLine("=== Move To Tile Test (Panels) ===");
-        
+
         if (driveSubsystem != null) {
             TileCoordinate pos = driveSubsystem.getCurrentPosition();
             if (pos != null) {
-                telemetryM.addData("Robot", "%s (X:%.1f, Y:%.1f)", 
-                    pos.getTilePosition(), pos.getX(), pos.getY());
+                telemetryM.addData("Robot", "%s (X:%.1f, Y:%.1f)",
+                        pos.getTilePosition(), pos.getX(), pos.getY());
             }
         }
 
         if (currentTarget != null) {
-            telemetryM.addData("Target", "%s (X:%.1f, Y:%.1f)", 
-                currentTarget.getTilePosition(), currentTarget.getX(), currentTarget.getY());
-            
+            telemetryM.addData("Target", "%s (X:%.1f, Y:%.1f)",
+                    currentTarget.getTilePosition(), currentTarget.getX(), currentTarget.getY());
+
             if (driveSubsystem != null && driveSubsystem.getCurrentPosition() != null) {
                 double dist = driveSubsystem.getCurrentPosition().distanceTo(currentTarget);
                 telemetryM.addData("Distance", "%.1f inches", dist);
             }
         }
-        
+
         telemetryM.addData("State", isMoving ? "MOVING" : "IDLE");
         telemetryM.update();
     }
