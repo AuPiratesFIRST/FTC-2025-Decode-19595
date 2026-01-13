@@ -18,12 +18,12 @@ public class OldSpindexerSubsystem {
 
     // Position definitions
     private static final int[] INTAKE_POSITIONS = { 10, 717, 1434 };
-    private static final int[] OUTTAKE_POSITIONS = { 2060, 1885, 1716 };
+    private static final int[] OUTTAKE_POSITIONS = { 268, 451, 630 };
 
     // COMPETITION TUNED COEFFICIENTS - Aggressive "Lockdown" Tuning
-    private double kP = 0.012;     // High P for immediate reaction
-    private double kI = 0.00015;   // I builds up the "Active Hold" force
-    private double kD = 0.0012;    // D prevents high-speed shaking
+    private double kP = 0.02350000000000001;     // High P for immediate reaction
+    private double kI = 0.00038000000000000035;   // I builds up the "Active Hold" force
+    private double kD =  0.01059999999999999;    // D prevents high-speed shaking
 
     private double lastError = 0;
     private double integralSum = 0;
