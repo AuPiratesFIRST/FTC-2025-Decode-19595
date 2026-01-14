@@ -9,6 +9,7 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
+import org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Funnel.FunnelSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
@@ -25,6 +26,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     // Subsystems
     private DriveSubsystem drive;
     private ShooterSubsystem shooter;
+    private IntakeSubsystem intake;
     private OldSpindexerSubsystem spindexer;
     private FunnelSubsystem funnel;
     private AprilTagNavigator aprilTag;
@@ -79,6 +81,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         // Initialize Subsystems
         drive = new DriveSubsystem(hardwareMap, telemetry);
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
+        intake = new IntakeSubsystem(hardwareMap, telemetry);
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         funnel = new FunnelSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
@@ -108,6 +111,9 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
             // 3. DRIVE & AUTO-ALIGNMENT
             handleDriveAndAlignment();
+
+            // 3.5 INTAKE CONTROL (LT forward, LB reverse)
+            handleIntake();
 
             // 4. HARDWARE COMMANDS
             executeHardwareActions();
@@ -324,6 +330,24 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
                 // ✅ FIX: Call stopManual() to truly disengage PID and motor
                 spindexer.stopManual();
             }
+        }
+    }
+
+    // Left Trigger: intake forward, Left Bumper: reverse
+    private void handleIntake() {
+        // Optional safety: block intake while funnel is not retracted
+        if (funnelState != FunnelState.RETRACTED) {
+            intake.setPower(0);
+            return;
+        }
+
+        // Forward intake only when in intake mode
+        if (gamepad2.left_trigger > 0.1 && intakeMode) {
+            intake.setPower(1.0);
+        } else if (gamepad2.left_bumper) {
+            intake.setPower(-1.0);
+        } else {
+            intake.setPower(0);
         }
     }
 
