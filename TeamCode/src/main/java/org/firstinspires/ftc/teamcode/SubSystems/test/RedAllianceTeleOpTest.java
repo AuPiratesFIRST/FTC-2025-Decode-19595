@@ -123,6 +123,9 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
             // --- 4. EXECUTE STATE LOGIC ---
             executeStateActions();
 
+            // ✅ ALWAYS RUN PID EVERY LOOP
+            spindexer.update();
+
             // --- 5. PERIPHERAL SYSTEMS ---
             executeDrive();
             executeIntake();
@@ -235,18 +238,15 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
         switch (currentMode) {
             case INTAKE:
-                spindexer.update();
                 handleShooterLogic(false);
                 break;
 
             case SHOOTING_SETUP:
-                spindexer.update();
                 // We keep shooter off while spindexer is making large moves
                 handleShooterLogic(false);
                 break;
 
             case SHOOTING_READY:
-                spindexer.update();
                 handleShooterLogic(true);
                 break;
 
@@ -263,11 +263,10 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         if (Math.abs(manualPower) > 0.1) {
             spindexer.setManualPower(manualPower * OldSpindexerSubsystem.getRecommendedManualPowerMultiplier());
             spindexerManualMoving = true;
-        } else if (spindexerManualMoving) {
-            spindexer.lockCurrentPosition();
+        } else {
             spindexerManualMoving = false;
         }
-        spindexer.update();
+        // No lock, no PID reset - let PID maintain position naturally
     }
 
     private void handleShooterLogic(boolean stateWantsSpin) {

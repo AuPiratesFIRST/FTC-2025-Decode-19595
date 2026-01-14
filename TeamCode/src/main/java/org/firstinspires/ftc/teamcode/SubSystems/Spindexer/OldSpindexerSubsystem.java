@@ -135,13 +135,11 @@ public class OldSpindexerSubsystem {
         int ticks = intakeMode ? INTAKE_POSITIONS[index] : OUTTAKE_POSITIONS[index];
         targetPosition = normalizeTicks(ticks);
         setPIDEnabled(true);
-        resetPIDOnly();
     }
 
     public void lockCurrentPosition() {
         targetPosition = normalizeTicks(spindexerMotor.getCurrentPosition());
         setPIDEnabled(true);
-        resetPIDOnly();
     }
 
     // === UTILITY METHODS ===
@@ -190,7 +188,12 @@ public class OldSpindexerSubsystem {
     public boolean isSettling() { return false; }
     public int getCurrentPosition() { return spindexerMotor.getCurrentPosition(); }
     public int getTargetPosition() { return targetPosition; }
-    public void setManualPower(double power) { pidEnabled = false; spindexerMotor.setPower(power); }
+    public void setManualPower(double power) {
+        // Shift the target instead of disabling PID
+        int current = spindexerMotor.getCurrentPosition();
+        targetPosition = normalizeTicks(current + (int)(power * 25)); // small velocity-like shift
+        pidEnabled = true;
+    }
     public void rotateToMotifStartPosition(ArtifactColor[] motif) { goToPositionForCurrentMode(0); }
     public static double getRecommendedManualPowerMultiplier() { return 0.75; }
 }
