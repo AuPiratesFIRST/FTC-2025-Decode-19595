@@ -44,8 +44,8 @@ public class AprilTagNavigator {
     private static final double CAMERA_HEIGHT = 9.375;
 
     // Fast settings for long-range stability
-    private int cameraExposureMs = 3;
-    private int cameraGain = 120;
+    private int cameraExposureMs = 14;
+    private int cameraGain = 35;
     private boolean cameraControlsSet = false;
 
     public AprilTagNavigator(DriveSubsystem driveSubsystem, HardwareMap hardwareMap, Telemetry telemetry) {

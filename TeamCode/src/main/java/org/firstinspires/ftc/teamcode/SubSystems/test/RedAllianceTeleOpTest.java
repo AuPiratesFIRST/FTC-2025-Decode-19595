@@ -13,6 +13,7 @@ import org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Funnel.FunnelSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
+import org.firstinspires.ftc.teamcode.SubSystems.Control.AimController;
 
 /**
  * FINAL COMPETITION TELEOP - AUDITED VERSION
@@ -30,6 +31,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private OldSpindexerSubsystem spindexer;
     private FunnelSubsystem funnel;
     private AprilTagNavigator aprilTag;
+    private AimController aimController;
 
     // State Variables
     private RobotMode currentMode = RobotMode.INTAKE;
@@ -50,8 +52,6 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     // === SPINDEXER STATE TRACKING ===
     private long spindexerReadyTime = 0;                    // Debounce timer for mode transitions
     private static final long SPINDEXER_DEBOUNCE_MS = 100;  // 100ms debounce
-    private long visionLostTime = 0;                        // Track how long tag has been lost
-    private static final long VISION_LOSS_TIMEOUT_MS = 500; // Timeout after 0.5s
 
     // === FUNNEL STATE MACHINE ===
     private enum FunnelState { RETRACTED, EXTENDING, EXTENDED, RETRACTING }
@@ -59,22 +59,9 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private long funnelTimer = 0;
     private static final long FUNNEL_EXTEND_TIME_MS = 400;  // Time to fully extend/retract
     private static final long FUNNEL_HOLD_TIME_MS = 300;    // Hold time before retracting
-
-    // === ALIGNMENT CONSTANTS ===
-    private static final double DESIRED_SHOOTING_DISTANCE = 134;
-    private static final double DESIRED_SHOOTING_ANGLE = 21;
-    private static final double KP_STRAFE = 0.03, KP_FORWARD = 0.03, KP_ROT = 0.015;
-    private static final double MAX_AUTO_POWER = 0.40;
-    private static final double POS_DEADBAND = 0.75, ANGLE_DEADBAND = 1.5;
-    private static final int TARGET_TAG_ID = 24;
     
     // === SHOOTER CONFIG ===
-    private static final double SHOOTER_RPM = 5225;
-    
-    // === VISION SMOOTHING (Exponential Moving Average) ===
-    private static final double VISION_ALPHA = 0.3;  // Weight for new measurement (0.3 = 30% new, 70% old)
-    private double lastStrafeCorrection = 0.0;
-    private double lastForwardCorrection = 0.0; 
+    private static final double SHOOTER_RPM = 5225; 
 
     @Override
     public void runOpMode() {
@@ -88,6 +75,17 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
 
         // ✅ FIX: Initialize camera controls ONCE before the loop to prevent lag
         aprilTag.initializeCameraControls();
+
+        // Initialize AimController with competition settings
+        aimController = new AimController(aprilTag, drive, telemetry);
+        aimController.setDesiredDistance(134);
+        aimController.setDesiredAngle(21);
+        aimController.setGains(0.03, 0.03, 0.015);
+        aimController.setMaxPower(0.40);
+        aimController.setDeadbands(0.75, 1.5, 2.0);
+        aimController.setTargetTagId(24);
+        aimController.setVisionLossTimeout(500);
+        aimController.setVisionSmoothing(0.3);
 
         waitForStart();
 
@@ -182,59 +180,12 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     }
 
     private void handleDriveAndAlignment() {
-        // --- SENSOR FUSION ALIGNMENT: Vision + IMU ---
-        // Hold Y to activate auto-alignment using AprilTag (vision truth) + IMU (gyro stability)
+        // --- UNIFIED ALIGNMENT: Vision + IMU Fusion with Fallback ---
+        // Hold Y to activate auto-alignment using AimController
         if (gamepad2.y) {
-            // 1. ASK VISION: Find the tag and update robot's position/heading in DriveSubsystem
-            boolean tagSeen = aprilTag.updateRobotPositionFromAllianceGoals();
-            AprilTagDetection tag = aprilTag.getBestAllianceGoalDetection();
-
-            if (tag != null && tag.id == TARGET_TAG_ID) {
-                visionLostTime = 0; // Reset timeout
-                
-                // 2. GET X/Y CORRECTIONS FROM VISION (strafe & forward)
-                // dbAngle = 0, kPR = 0: We skip vision-based rotation and use IMU instead
-                double[] corrections = aprilTag.calculateAlignmentCorrections(
-                        tag, DESIRED_SHOOTING_DISTANCE, DESIRED_SHOOTING_ANGLE,
-                        POS_DEADBAND, POS_DEADBAND, 0,    // dbAngle set to 0 (handled by IMU)
-                        KP_STRAFE, KP_FORWARD, 0, MAX_AUTO_POWER); // kPR set to 0 (IMU controls turn)
-                
-                if (corrections != null) {
-                    // 3. CALCULATE TURN POWER USING IMU (gyro-based PID)
-                    double currentHeadingDeg = Math.toDegrees(drive.getHeading());
-                    double angleError = AngleUnit.normalizeDegrees(DESIRED_SHOOTING_ANGLE - currentHeadingDeg);
-                    double turnPower = Range.clip(angleError * KP_ROT, -MAX_AUTO_POWER, MAX_AUTO_POWER);
-
-                    // 4. APPLY EXPONENTIAL MOVING AVERAGE TO VISION CORRECTIONS (reduce jitter)
-                    double smoothedStrafe = VISION_ALPHA * corrections[1] + (1.0 - VISION_ALPHA) * lastStrafeCorrection;
-                    double smoothedForward = VISION_ALPHA * corrections[0] + (1.0 - VISION_ALPHA) * lastForwardCorrection;
-                    lastStrafeCorrection = smoothedStrafe;
-                    lastForwardCorrection = smoothedForward;
-
-                    // 5. COMBINE VISION (STRAFE + FORWARD) + IMU (TURN)
-                    drive.drive(smoothedStrafe, smoothedForward, turnPower);
-                    return;
-                }
-            } else {
-                // TAG LOST: Track timeout and hold angle
-                if (visionLostTime == 0) {
-                    visionLostTime = System.currentTimeMillis();
-                }
-                
-                // Still searching within timeout window? Use IMU to hold angle
-                if (System.currentTimeMillis() - visionLostTime < VISION_LOSS_TIMEOUT_MS) {
-                    double currentHeadingDeg = Math.toDegrees(drive.getHeading());
-                    double angleError = AngleUnit.normalizeDegrees(DESIRED_SHOOTING_ANGLE - currentHeadingDeg);
-                    double turnPower = Range.clip(angleError * KP_ROT, -MAX_AUTO_POWER, MAX_AUTO_POWER);
-                    
-                    drive.drive(0, 0, turnPower);
-                    return;
-                } else {
-                    // Timeout exceeded: disable alignment to allow manual control
-                    // Don't drive, let driver take over
-                    return;
-                }
-            }
+            AimController.AlignmentResult result = aimController.update();
+            drive.drive(result.strafe, result.forward, result.turn);
+            return;
         }
 
         // --- MANUAL DRIVER CONTROLS ---
@@ -362,7 +313,13 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         telemetry.addData("TAG RANGE", bestTag != null ? String.format("%.2f in", bestTag.ftcPose.range) : "N/A");
         
         telemetry.addData("SHOOTER RPM", "%.0f / %.0f", shooter.getCurrentRPM(), shooter.getTargetRPM());
-        telemetry.addData("ALIGNMENT", gamepad2.y ? "ACTIVE" : "OFF");
+        
+        if (gamepad2.y) {
+            telemetry.addData("ALIGNMENT", "ACTIVE");
+        } else {
+            telemetry.addData("ALIGNMENT", "OFF");
+        }
+        
         telemetry.update();
     }
 }
