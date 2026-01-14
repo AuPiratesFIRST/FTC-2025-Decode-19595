@@ -321,8 +321,8 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
             if (Math.abs(stick) > STICK_DEADBAND) {
                 spindexer.setManualPower(stick * 0.75);
             } else {
-                // ✅ FIX: Explicitly zero power when stick is released in manual mode
-                spindexer.setManualPower(0);
+                // ✅ FIX: Call stopManual() to truly disengage PID and motor
+                spindexer.stopManual();
             }
         }
     }
