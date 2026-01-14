@@ -57,41 +57,55 @@ public class OldSpindexerSubsystem {
     }
 
     /**
+     * FORCED ONE-WAY LOGIC
+     * This ensures the spindexer never backs into the mechanical ramp.
+     */
+    public double forwardOnlyError(int target, int current) {
+        int nTarget = normalizeTicks(target);
+        int nCurrent = normalizeTicks(current);
+        
+        double error = (double) nTarget - nCurrent;
+        
+        // If error is negative, it means the target is "behind" us.
+        // We add a full revolution to force it to go the "long way" around (Clockwise).
+        if (error < 0) {
+            error += TICKS_PER_REVOLUTION;
+        }
+        
+        return error;
+    }
+
+    /**
      * CORE CONTROL LOOP
      * Implements "Active Force Feedback" to resist external pressure.
+     * NOW WITH ONE-WAY SAFETY: Uses forwardOnlyError to prevent backward motion into ramp.
      */
     public void update() {
         if (!pidEnabled) return;
 
         int currentPosition = spindexerMotor.getCurrentPosition();
-        double error = shortestError(targetPosition, currentPosition);
-
-        // LOCKDOWN: We no longer stop at the deadband.
-        // The motor stays active to "Pre-load" the gears and fight back.
+        
+        // ✅ CHANGE: Use forwardOnlyError instead of shortestError
+        double error = forwardOnlyError(targetPosition, currentPosition);
 
         if (!hasPrevError) {
             lastError = error;
             hasPrevError = true;
         }
 
-        // Build Active Hold Force
         integralSum += error;
-
-        // Anti-windup: limit hold force to 40% motor power to prevent over-stalling
-        integralSum = Range.clip(integralSum, -0.4 / (kI + 1e-9), 0.4 / (kI + 1e-9));
+        integralSum = Range.clip(integralSum, -0.25 / (kI + 1e-9), 0.25 / (kI + 1e-9));
 
         double derivative = (error - lastError) * kD;
         lastError = error;
 
         double output = (error * kP) + (integralSum * kI) + derivative;
 
-        // FEEDFORWARD NUDGE: Overcomes gear stiction/friction
-        // If we are slightly off, apply a 5% nudge to force it to the exact tick.
-        if (Math.abs(error) > 1 && Math.abs(output) < 0.05) {
-            output = Math.signum(error) * 0.05;
-        }
-
-        spindexerMotor.setPower(Range.clip(output, -1.0, 1.0) * SPEED_MULTIPLIER);
+        // ✅ SAFETY CLIP: Only allow positive (Forward/Clockwise) power
+        // This is the "insurance policy" for your ramp.
+        double finalPower = Range.clip(output, 0.0, 1.0) * SPEED_MULTIPLIER;
+        
+        spindexerMotor.setPower(finalPower);
     }
 
     // === COMPATIBILITY METHODS (Required for your existing code) ===

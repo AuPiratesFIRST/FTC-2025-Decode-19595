@@ -169,19 +169,30 @@ public class AprilTagNavigator {
                 exp.setMode(ExposureControl.Mode.Manual);
                 Thread.sleep(50);
             }
-            exp.setExposure((long) exposureMs, TimeUnit.MILLISECONDS);
+            // Clamp exposure to hardware limits
+            long clampedExposure = Range.clip(
+                exposureMs,
+                (int) exp.getMinExposure(TimeUnit.MILLISECONDS),
+                (int) exp.getMaxExposure(TimeUnit.MILLISECONDS)
+            );
+            exp.setExposure(clampedExposure, TimeUnit.MILLISECONDS);
+            
             GainControl g = visionPortal.getCameraControl(GainControl.class);
             g.setGain(Range.clip(gain, g.getMinGain(), g.getMaxGain()));
             return true;
-        } catch (Exception e) { return false; }
+        } catch (Exception e) { 
+            if (telemetry != null) telemetry.addData("Camera Controls", "Failed to set");
+            return false;
+        }
     }
 
     public AprilTagDetection getBestDetection() {
         return aprilTag.getDetections().stream()
                 .filter(tag -> tag.id == 20 || tag.id == 24)
+                .filter(tag -> tag.ftcPose.range >= MIN_DETECTION_DISTANCE)  // Prevent near-field explosions
                 .filter(tag -> tag.ftcPose.range <= MAX_DETECTION_DISTANCE)
                 .filter(tag -> tag.decisionMargin >= MIN_DECISION_MARGIN)
-                .min(Comparator.comparingDouble(tag -> tag.ftcPose.range))
+                .min(Comparator.comparingDouble(tag -> tag.ftcPose.range / tag.decisionMargin))  // Favor close + confident
                 .orElse(null);
     }
 
@@ -204,15 +215,23 @@ public class AprilTagNavigator {
         }
         if (tagPos == null) return null;
 
+        // Extract tag position components correctly: {id, x, y, headingDeg}
+        double tagX = tagPos[1];
+        double tagY = tagPos[2];
+        double tagHeadingDeg = tagPos[3];
+
         double relX = detection.ftcPose.x;
         double relY = detection.ftcPose.y;
-        double cameraHeading = Math.toRadians(tagPos[2]) + Math.PI - Math.toRadians(detection.ftcPose.yaw);
+        
+        // Camera heading in field frame
+        double cameraHeading = Math.toRadians(tagHeadingDeg) + Math.PI - Math.toRadians(detection.ftcPose.yaw);
 
         double cosH = Math.cos(cameraHeading);
         double sinH = Math.sin(cameraHeading);
 
-        double robotX = tagPos[1] - (relX * cosH - relY * sinH);
-        double robotY = tagPos[2] - (relX * sinH + relY * cosH);
+        // Transform camera-relative position to field frame
+        double robotX = tagX - (relX * cosH - relY * sinH);
+        double robotY = tagY - (relX * sinH + relY * cosH);
 
         return new double[]{robotX, robotY, cameraHeading};
     }
@@ -231,7 +250,8 @@ public class AprilTagNavigator {
                                                   double kPS, double kPF, double kPR, double maxP) {
         if (tag == null) return null;
         double fErr = tag.ftcPose.y - desiredDist;
-        double aErr = tag.ftcPose.yaw + desiredAngle;
+        // Use normalized angle difference to prevent wraparound oscillation at ±180°
+        double aErr = AngleUnit.normalizeDegrees(tag.ftcPose.yaw - desiredAngle);
         double sP = (Math.abs(tag.ftcPose.x) > dbX) ? tag.ftcPose.x * kPS : 0;
         double fP = (Math.abs(fErr) > dbY) ? fErr * kPF : 0;
         double tP = (Math.abs(aErr) > dbAngle) ? aErr * kPR : 0;

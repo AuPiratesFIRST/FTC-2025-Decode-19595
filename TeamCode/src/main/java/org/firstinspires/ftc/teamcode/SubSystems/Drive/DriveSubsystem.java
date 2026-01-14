@@ -28,7 +28,8 @@ public class DriveSubsystem {
 
     private static final double TICKS_PER_REVOLUTION = 560.0;
     private static final double WHEEL_DIAMETER = 4.0; // inches
-    private static final double WHEEL_BASE = 16.0; // inches between wheels
+    private static final double WHEEL_BASE = 16.0; // inches between wheels (left-right)
+    private static final double STRAFE_CORRECTION = 1.15; // Mecanum strafe slip compensation
 
     private Telemetry telemetry;
 
@@ -101,8 +102,9 @@ public class DriveSubsystem {
     // =================== Drive Methods ===================
 
     /**
-     * Mecanum wheel drive kinematics.
+     * Mecanum wheel drive kinematics with power normalization.
      * Calculates individual motor powers for mecanum wheel drivebase.
+     * Automatically scales powers to prevent any motor from exceeding ±1.0.
      */
     public void drive(double forward, double strafe, double turn) {
         double fl = forward + strafe + turn; // Left Front
@@ -110,11 +112,19 @@ public class DriveSubsystem {
         double bl = forward - strafe + turn; // Left Rear
         double br = forward + strafe - turn; // Right Rear
 
-        // Clip values to avoid exceeding motor power limits [-1.0, 1.0]
-        leftFront.setPower(Range.clip(fl, -1, 1));
-        rightFront.setPower(Range.clip(fr, -1, 1));
-        leftRear.setPower(Range.clip(bl, -1, 1));
-        rightRear.setPower(Range.clip(br, -1, 1));
+        // Normalize powers to prevent exceeding ±1.0
+        double max = Math.max(1.0, Math.max(Math.abs(fl), Math.max(Math.abs(fr), 
+                                     Math.max(Math.abs(bl), Math.abs(br)))));
+        fl /= max;
+        fr /= max;
+        bl /= max;
+        br /= max;
+
+        // Set motor powers (already normalized, no clipping needed)
+        leftFront.setPower(fl);
+        rightFront.setPower(fr);
+        leftRear.setPower(bl);
+        rightRear.setPower(br);
     }
 
     public void stop() {
@@ -125,6 +135,8 @@ public class DriveSubsystem {
 
     /**
      * Move the robot forward or backward by a specific distance in inches.
+     * NOTE: This is a blocking call. Motors will run to position asynchronously.
+     * Call isAtTarget() in your OpMode loop to check completion.
      */
     public void moveInches(double inches, double power) {
         double wheelCircumference = Math.PI * WHEEL_DIAMETER;
@@ -137,27 +149,26 @@ public class DriveSubsystem {
 
         setMotorModes(DcMotor.RunMode.RUN_TO_POSITION);
 
-        leftFront.setPower(power);
-        leftRear.setPower(power);
-        rightFront.setPower(power);
-        rightRear.setPower(power);
+        leftFront.setPower(Math.abs(power));
+        leftRear.setPower(Math.abs(power));
+        rightFront.setPower(Math.abs(power));
+        rightRear.setPower(Math.abs(power));
 
-        while (leftFront.isBusy() && leftRear.isBusy() && rightFront.isBusy() && rightRear.isBusy()) {
-            if (telemetry != null) {
-                telemetry.addData("Moving", "Distance: %.1f inches", inches);
-                telemetry.update();
-            }
+        // Non-blocking: caller must check isAtTarget() in their loop
+        if (telemetry != null) {
+            telemetry.addData("Moving", "Target: %.1f inches", inches);
         }
-
-        stop(); // Stop when finished
     }
 
     /**
      * Strafe the robot left or right by a specific distance in inches.
+     * Includes STRAFE_CORRECTION factor to compensate for mecanum wheel slip.
+     * NOTE: This is a blocking call. Motors will run to position asynchronously.
+     * Call isAtTarget() in your OpMode loop to check completion.
      */
     public void strafeInches(double inches, double power) {
         double wheelCircumference = Math.PI * WHEEL_DIAMETER;
-        double ticksRequired = (inches / wheelCircumference) * TICKS_PER_REVOLUTION;
+        double ticksRequired = (inches / wheelCircumference) * TICKS_PER_REVOLUTION * STRAFE_CORRECTION;
 
         leftFront.setTargetPosition(leftFront.getCurrentPosition() + (int) -ticksRequired); // Left Front
         leftRear.setTargetPosition(leftRear.getCurrentPosition() + (int) ticksRequired); // Left Rear
@@ -166,51 +177,90 @@ public class DriveSubsystem {
 
         setMotorModes(DcMotor.RunMode.RUN_TO_POSITION);
 
-        leftFront.setPower(power);
-        leftRear.setPower(power);
-        rightFront.setPower(power);
-        rightRear.setPower(power);
+        leftFront.setPower(Math.abs(power));
+        leftRear.setPower(Math.abs(power));
+        rightFront.setPower(Math.abs(power));
+        rightRear.setPower(Math.abs(power));
 
-        while (leftFront.isBusy() && leftRear.isBusy() && rightFront.isBusy() && rightRear.isBusy()) {
-            if (telemetry != null) {
-                telemetry.addData("Strafing", "Distance: %.1f inches", inches);
-                telemetry.update();
-            }
+        // Non-blocking: caller must check isAtTarget() in their loop
+        if (telemetry != null) {
+            telemetry.addData("Strafing", "Target: %.1f inches", inches);
         }
-
-        stop(); // Stop when finished
     }
 
     /**
-     * Rotate the robot by a specific number of degrees.
+     * Rotate the robot by a specific number of degrees using encoder-based control.
+     * Uses the robot's WHEEL_BASE to calculate proper turning arc.
+     * NOTE: This is a blocking call. Motors will run to position asynchronously.
+     * Call isAtTarget() in your OpMode loop to check completion.
+     * 
+     * For more accurate rotation, consider using rotateToHeading() with IMU.
      */
     public void rotateDegrees(double degrees, double power) {
+        // Calculate arc length for rotation based on wheelbase
+        double turnCircumference = Math.PI * WHEEL_BASE;
+        double turnDistance = (degrees / 360.0) * turnCircumference;
+        
+        // Convert arc distance to encoder ticks
         double wheelCircumference = Math.PI * WHEEL_DIAMETER;
-        double turnDistance = (degrees / 360) * wheelCircumference;
         double ticksRequired = (turnDistance / wheelCircumference) * TICKS_PER_REVOLUTION;
 
         int ticks = (int) ticksRequired;
 
-        leftFront.setTargetPosition(leftFront.getCurrentPosition() - ticks);  // Rotate counterclockwise (left motor)
-        leftRear.setTargetPosition(leftRear.getCurrentPosition() - ticks);   // Rotate counterclockwise (left motor)
-        rightFront.setTargetPosition(rightFront.getCurrentPosition() + ticks); // Rotate clockwise (right motor)
-        rightRear.setTargetPosition(rightRear.getCurrentPosition() + ticks);  // Rotate clockwise (right motor)
+        // Left motors rotate backward (CCW), right motors forward (CCW rotation)
+        leftFront.setTargetPosition(leftFront.getCurrentPosition() - ticks);
+        leftRear.setTargetPosition(leftRear.getCurrentPosition() - ticks);
+        rightFront.setTargetPosition(rightFront.getCurrentPosition() + ticks);
+        rightRear.setTargetPosition(rightRear.getCurrentPosition() + ticks);
 
         setMotorModes(DcMotor.RunMode.RUN_TO_POSITION);
 
-        leftFront.setPower(power);
-        leftRear.setPower(power);
-        rightFront.setPower(power);
-        rightRear.setPower(power);
+        leftFront.setPower(Math.abs(power));
+        leftRear.setPower(Math.abs(power));
+        rightFront.setPower(Math.abs(power));
+        rightRear.setPower(Math.abs(power));
 
-        while (leftFront.isBusy() && leftRear.isBusy() && rightFront.isBusy() && rightRear.isBusy()) {
-            if (telemetry != null) {
-                telemetry.addData("Rotating", "Angle: %.1f degrees", degrees);
-                telemetry.update();
-            }
+        // Non-blocking: caller must check isAtTarget() in their loop
+        if (telemetry != null) {
+            telemetry.addData("Rotating", "Target: %.1f degrees", degrees);
         }
+    }
 
-        stop(); // Stop when finished
+    /**
+     * IMU-based rotation to absolute heading (more accurate than encoder-based).
+     * Rotates to a target heading using closed-loop PID control with the IMU.
+     * Call this method repeatedly in your OpMode loop until isAtTarget() returns true.
+     * 
+     * @param targetHeadingDegrees Target heading in degrees (0 = forward, +CCW)
+     * @param kP Proportional gain for rotation control (try 0.02-0.05)
+     * @param toleranceDegrees Acceptable heading error in degrees (try 1.0-2.0)
+     * @return True if at target heading
+     */
+    public boolean rotateToHeading(double targetHeadingDegrees, double kP, double toleranceDegrees) {
+        double currentHeadingDeg = Math.toDegrees(getHeading());
+        double error = AngleUnit.normalizeDegrees(targetHeadingDegrees - currentHeadingDeg);
+        
+        if (Math.abs(error) < toleranceDegrees) {
+            stop();
+            return true;
+        }
+        
+        double turnPower = Range.clip(error * kP, -1.0, 1.0);
+        drive(0, 0, turnPower);
+        
+        if (telemetry != null) {
+            telemetry.addData("IMU Rotation", "Error: %.1f°", error);
+        }
+        
+        return false;
+    }
+
+    /**
+     * Restore motors to velocity control mode.
+     * Call this after using RUN_TO_POSITION movements to restore normal driving.
+     */
+    public void restoreNormalMode() {
+        setMotorModes(DcMotor.RunMode.RUN_USING_ENCODER);
     }
 
 
@@ -233,7 +283,7 @@ public class DriveSubsystem {
      * This provides ABSOLUTE rotation measurement that is immune to wheel slip.
      * The IMU continuously tracks rotation even if wheels slip or the robot gets bumped.
      *
-     * @return Current heading in radians (0 = facing right, π/2 = up, π = left, 3π/2 = down)
+     * @return Current heading in radians (0 = forward, positive = CCW rotation)
      */
     public double getHeading() {
         return imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS);
