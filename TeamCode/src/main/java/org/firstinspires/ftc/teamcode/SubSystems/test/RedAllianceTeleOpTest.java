@@ -291,7 +291,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
                 break;
 
             case EXTENDING:
-                // Wait for funnel to fully extend
+                // Wait forfun ne lto fully extend
                 if (System.currentTimeMillis() - funnelTimer >= FUNNEL_EXTEND_TIME_MS) {
                     funnelState = FunnelState.EXTENDED;
                     funnelTimer = System.currentTimeMillis();

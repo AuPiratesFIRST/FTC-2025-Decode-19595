@@ -31,7 +31,7 @@ public class OldSpindexerSubsystem {
     private int targetPosition = 0;
 
     private static final int POSITION_TOLERANCE = 8; // Tighter tolerance for accuracy
-    private static final double SPEED_MULTIPLIER = 0.75; // 0.75 for torque and smoothness
+    private static final double SPEED_MULTIPLIER = 0.5; // 0.75 for torque and smoothness
 
     private boolean pidEnabled = false;
     private boolean tuningMode = false;
@@ -57,67 +57,41 @@ public class OldSpindexerSubsystem {
     }
 
     /**
-     * FORCED ONE-WAY LOGIC (IMPROVED)
-     * This ensures the spindexer never backs into the mechanical ramp.
-     * ✅ Also avoids forcing full revolution if already at target (prevents deadlock).
-     */
-    public double forwardOnlyError(int target, int current) {
-        int nTarget = normalizeTicks(target);
-        int nCurrent = normalizeTicks(current);
-        
-        double error = (double) nTarget - nCurrent;
-        
-        // If we're already basically at target, don't force a full lap
-        if (Math.abs(error) <= POSITION_TOLERANCE) {
-            return 0;
-        }
-        
-        // If error is negative, it means the target is "behind" us.
-        // We add a full revolution to force it to go the "long way" around (Clockwise).
-        if (error < 0) {
-            error += TICKS_PER_REVOLUTION;
-        }
-        
-        return error;
-    }
-
-    /**
      * CORE CONTROL LOOP
      * Implements "Active Force Feedback" to resist external pressure.
-     * NOW WITH ONE-WAY SAFETY: Uses forwardOnlyError to prevent backward motion into ramp.
      */
     public void update() {
         if (!pidEnabled) return;
 
         int currentPosition = spindexerMotor.getCurrentPosition();
-        
-        // ✅ CHANGE: Use forwardOnlyError instead of shortestError
-        double error = forwardOnlyError(targetPosition, currentPosition);
+        double error = shortestError(targetPosition, currentPosition);
+
+        // LOCKDOWN: We no longer stop at the deadband.
+        // The motor stays active to "Pre-load" the gears and fight back.
 
         if (!hasPrevError) {
             lastError = error;
             hasPrevError = true;
         }
 
+        // Build Active Hold Force
         integralSum += error;
-        integralSum = Range.clip(integralSum, -0.25 / (kI + 1e-9), 0.25 / (kI + 1e-9));
+
+        // Anti-windup: limit hold force to 40% motor power to prevent over-stalling
+        integralSum = Range.clip(integralSum, -0.4 / (kI + 1e-9), 0.4 / (kI + 1e-9));
 
         double derivative = (error - lastError) * kD;
         lastError = error;
 
         double output = (error * kP) + (integralSum * kI) + derivative;
 
-        // ✅ SAFETY CLIP: Only allow positive (Forward/Clockwise) power
-        // This is the "insurance policy" for your ramp.
-        // ✅ ADD MINIMUM FEEDFORWARD: Overcome static friction + BRAKE drag
-        double minPower = 0.12; // Tune between 0.10–0.18 based on mechanism load
-        double commanded = Range.clip(output, 0.0, 1.0);
-        
-        double finalPower = commanded > 0.001
-                ? (minPower + commanded * (1.0 - minPower)) * SPEED_MULTIPLIER
-                : 0.0;
-        
-        spindexerMotor.setPower(finalPower);
+        // FEEDFORWARD NUDGE: Overcomes gear stiction/friction
+        // If we are slightly off, apply a 5% nudge to force it to the exact tick.
+        if (Math.abs(error) > 1 && Math.abs(output) < 0.05) {
+            output = Math.signum(error) * 0.05;
+        }
+
+        spindexerMotor.setPower(Range.clip(output, -1.0, 1.0) * SPEED_MULTIPLIER);
     }
 
     // === COMPATIBILITY METHODS (Required for your existing code) ===
@@ -148,28 +122,26 @@ public class OldSpindexerSubsystem {
         if (index >= 0 && index <= 2) goToPositionForCurrentMode(index);
         else {
             targetPosition = normalizeTicks(index);
-            resetPIDOnly(); // ✅ Reset accumulated integral on new target
             setPIDEnabled(true);
         }
     }
 
     public void goToPosition(SpindexerPosition position) {
         targetPosition = normalizeTicks(position.getTicks());
-        resetPIDOnly(); // ✅ Reset accumulated integral on new target
         setPIDEnabled(true);
     }
 
     public void goToPositionForCurrentMode(int index) {
-        // NOTE: Avoid index=0 at startup (only 10 ticks). Use index=1 for meaningful motion verification.
         int ticks = intakeMode ? INTAKE_POSITIONS[index] : OUTTAKE_POSITIONS[index];
         targetPosition = normalizeTicks(ticks);
-        resetPIDOnly(); // ✅ Reset accumulated integral on new target
         setPIDEnabled(true);
+        resetPIDOnly();
     }
 
     public void lockCurrentPosition() {
         targetPosition = normalizeTicks(spindexerMotor.getCurrentPosition());
         setPIDEnabled(true);
+        resetPIDOnly();
     }
 
     // === UTILITY METHODS ===
@@ -189,10 +161,7 @@ public class OldSpindexerSubsystem {
     }
 
     public boolean isAtPosition() {
-        // ✅ CONSISTENCY FIX: Use forwardOnlyError (same model as PID control)
-        // This prevents PID & state machine from disagreeing about position
-        double error = forwardOnlyError(targetPosition, spindexerMotor.getCurrentPosition());
-        return error <= POSITION_TOLERANCE;
+        return Math.abs(shortestError(targetPosition, spindexerMotor.getCurrentPosition())) <= POSITION_TOLERANCE;
     }
 
     public boolean isMoving() {
@@ -215,24 +184,19 @@ public class OldSpindexerSubsystem {
         return normalized;
     }
 
+        public void stopManual() {
+        // Stop manual control and return to idle
+        spindexerMotor.setPower(0);
+        pidEnabled = false;
+    }
+
     public void setPIDEnabled(boolean enabled) { this.pidEnabled = enabled; }
     public void setIntakeMode(boolean intake) { this.intakeMode = intake; }
     public void setTuningMode(boolean enabled) { this.tuningMode = enabled; }
     public boolean isSettling() { return false; }
     public int getCurrentPosition() { return spindexerMotor.getCurrentPosition(); }
     public int getTargetPosition() { return targetPosition; }
-    public void setManualPower(double power) {
-        // ✅ TRUE MANUAL MODE: Direct motor control for real hardware verification
-        // This bypasses PID entirely for testing and emergency control
-        pidEnabled = false;
-        spindexerMotor.setPower(Range.clip(power, -0.6, 0.6));
-    }
-
-    public void stopManual() {
-        // Stop manual control and return to idle
-        spindexerMotor.setPower(0);
-        pidEnabled = false;
-    }
+    public void setManualPower(double power) { pidEnabled = false; spindexerMotor.setPower(power); }
     public void rotateToMotifStartPosition(ArtifactColor[] motif) { goToPositionForCurrentMode(0); }
     public static double getRecommendedManualPowerMultiplier() { return 0.75; }
 }
