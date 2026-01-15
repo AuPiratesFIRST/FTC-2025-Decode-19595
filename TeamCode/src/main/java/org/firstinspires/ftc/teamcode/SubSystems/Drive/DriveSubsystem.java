@@ -93,8 +93,11 @@ public class DriveSubsystem {
 
         imu.initialize(new IMU.Parameters(orientationOnRobot));
         
+        // Reset yaw to zero - this sets the current orientation as 0 degrees
+        imu.resetYaw();
+        
         if (telemetry != null) {
-            telemetry.addData("IMU", "Initialized successfully");
+            telemetry.addData("IMU", "Initialized and reset to 0°");
         }
     }
 
@@ -324,4 +327,9 @@ public class DriveSubsystem {
     public double getCurrentHeading() {
         return currentHeading;
     }
+
+    public double getPoseY() {
+        return currentPosition.getY(); // returns Y in inches
+    }
+
 }

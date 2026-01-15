@@ -60,8 +60,10 @@ public class TileCoordinate {
      */
     public TileCoordinate(char column, int row) {
         int colIndex = column - 'V';
-        this.x = colIndex * TILE_SIZE;
-        this.y = (row - 1) * TILE_SIZE;
+        // Tab-line intersections are at seams between tiles, one tile in from the field edge.
+        // Seams (in inches) = 24, 48, 72, 96, 120 => (colIndex + 1) * TILE_SIZE
+        this.x = (colIndex + 1) * TILE_SIZE;
+        this.y = row * TILE_SIZE;
     }
 
     // Getters
@@ -98,8 +100,10 @@ public class TileCoordinate {
      * @return Column character (V-Z)
      */
     public char getTabColumn() {
-        int col = (int) (x / TILE_SIZE);
-        return (char) ('V' + Math.max(0, Math.min(4, col)));
+        // Convert field X (inches) to seam index: seams are at 24,48,... => x/TILE_SIZE = 1..5
+        int col = (int) (x / TILE_SIZE) - 1; // map 24->0 (V), 48->1 (W), ..., 120->4 (Z)
+        col = Math.max(0, Math.min(4, col));
+        return (char) ('V' + col);
     }
 
     /**
@@ -108,7 +112,10 @@ public class TileCoordinate {
      * @return Row number (1-5)
      */
     public int getTabRow() {
-        return (int) (y / TILE_SIZE) + 1;
+        // Seams are at y = 24,48,... so y/TILE_SIZE = 1..5 maps to rows 1..5
+        int row = (int) (y / TILE_SIZE);
+        row = Math.max(1, Math.min(5, row));
+        return row;
     }
 
     /**
@@ -187,8 +194,9 @@ public class TileCoordinate {
      */
     public void moveToTabIntersection(char column, int row) {
         int colIndex = column - 'V';
-        this.x = colIndex * TILE_SIZE;
-        this.y = (row - 1) * TILE_SIZE;
+        // Seams are located one tile in from the edge: (colIndex + 1) * TILE_SIZE
+        this.x = (colIndex + 1) * TILE_SIZE;
+        this.y = row * TILE_SIZE;
     }
 
     /**
