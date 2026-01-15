@@ -6,17 +6,19 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
+import org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Funnel.FunnelSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
 import org.firstinspires.ftc.teamcode.SubSystems.Control.AimController;
 
-@Autonomous(name = "Blue Auto – 3 Shot Preload (Funnel)", group = "Autonomous")
+@Autonomous(name = "Blue Auto – 3 Shot Preload (Funnel + Intake Hold)", group = "Autonomous")
 public class SimpleBlueAuto extends OpMode {
 
     // --- Subsystems ---
     private DriveSubsystem drive;
     private ShooterSubsystem shooter;
+    private IntakeSubsystem intake;
     private OldSpindexerSubsystem spindexer;
     private FunnelSubsystem funnel;
     private AprilTagNavigator aprilTag;
@@ -26,6 +28,9 @@ public class SimpleBlueAuto extends OpMode {
 
     private static final double SHOOTER_RPM = 5225;
     private int shotIndex = 0;
+
+    // === INTAKE CONFIG (AUTO HOLD) ===
+    private static final double INTAKE_HOLD_POWER = 0.57;
 
     // --- Funnel state machine ---
     private enum FunnelState { RETRACTED, EXTENDING, EXTENDED, RETRACTING }
@@ -39,9 +44,9 @@ public class SimpleBlueAuto extends OpMode {
 
     @Override
     public void init() {
-        // --- Initialize subsystems ---
         drive = new DriveSubsystem(hardwareMap, telemetry);
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
+        intake = new IntakeSubsystem(hardwareMap, telemetry);
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
         funnel = new FunnelSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
@@ -49,7 +54,6 @@ public class SimpleBlueAuto extends OpMode {
         aprilTag.initializeCameraControls();
         drive.resetHeading();
 
-        // --- AimController setup ---
         aimController = new AimController(aprilTag, drive, telemetry);
         aimController.setDesiredDistance(134);
         aimController.setDesiredAngle(21);
@@ -69,20 +73,27 @@ public class SimpleBlueAuto extends OpMode {
         spindexer.setIntakeMode(false);
         funnel.retract();
         funnelState = FunnelState.RETRACTED;
+
+        // ✅ Start intake hold immediately
+        intake.setPower(INTAKE_HOLD_POWER);
     }
 
     @Override
     public void loop() {
+
+        // ✅ ALWAYS hold balls in spindexer
+        intake.setPower(INTAKE_HOLD_POWER);
+
         spindexer.update();
         shooter.updateVoltageCompensation();
 
         switch (state) {
 
             case ALIGN:
-                AimController.AlignmentResult result = aimController.update();
-                drive.drive(result.strafe, result.forward, result.turn);
+                AimController.AlignmentResult align = aimController.update();
+                drive.drive(align.strafe, align.forward, align.turn);
 
-                if (result.aligned) {
+                if (align.aligned) {
                     drive.stop();
                     state = State.SPIN_UP;
                     stateTimer.reset();
@@ -92,84 +103,75 @@ public class SimpleBlueAuto extends OpMode {
             case SPIN_UP:
                 shooter.setTargetRPM(SHOOTER_RPM);
 
-                // Wait until shooter is at or near target RPM
-                if (shooter.isAtTargetRPM() || Math.abs(shooter.getCurrentRPM() - SHOOTER_RPM) < 100) {
+                if (shooter.isAtTargetRPM()
+                        || Math.abs(shooter.getCurrentRPM() - SHOOTER_RPM) < 100) {
                     state = State.FIRE;
-                    stateTimer.reset();
                     shotIndex = 0;
+                    stateTimer.reset();
                 }
                 break;
 
             case FIRE:
-                // --- Handle one shot at a time ---
                 if (shotIndex < 3) {
 
-                    // Step 1: Move spindexer to current shot
+                    // Step 1: Move spindexer
                     spindexer.goToPositionForCurrentMode(shotIndex);
 
-                    // Step 2: Wait until spindexer is at position
-                    if (spindexer.isAtPosition()) {
+                    if (spindexer.isAtPosition()
+                            && (shooter.isAtTargetRPM()
+                            || Math.abs(shooter.getCurrentRPM() - SHOOTER_RPM) < 100)) {
 
-                        // Step 3: Wait until shooter is ready
-                        if (shooter.isAtTargetRPM() || Math.abs(shooter.getCurrentRPM() - SHOOTER_RPM) < 100) {
+                        switch (funnelState) {
 
-                            // Step 4: Funnel state machine
-                            switch (funnelState) {
+                            case RETRACTED:
+                                funnel.extend();
+                                funnelState = FunnelState.EXTENDING;
+                                stateTimer.reset();
+                                break;
 
-                                case RETRACTED:
-                                    funnel.extend();
-                                    funnelState = FunnelState.EXTENDING;
+                            case EXTENDING:
+                                if (stateTimer.milliseconds() >= FUNNEL_EXTEND_TIME_MS) {
+                                    funnelState = FunnelState.EXTENDED;
                                     stateTimer.reset();
-                                    break;
+                                }
+                                break;
 
-                                case EXTENDING:
-                                    if (stateTimer.milliseconds() >= FUNNEL_EXTEND_TIME_MS) {
-                                        funnelState = FunnelState.EXTENDED;
-                                        stateTimer.reset();
-                                    }
-                                    break;
+                            case EXTENDED:
+                                if (stateTimer.milliseconds() >= FUNNEL_HOLD_TIME_MS) {
+                                    funnel.retract();
+                                    funnelState = FunnelState.RETRACTING;
+                                    stateTimer.reset();
+                                }
+                                break;
 
-                                case EXTENDED:
-                                    // Hold briefly while firing
-                                    if (stateTimer.milliseconds() >= FUNNEL_HOLD_TIME_MS) {
-                                        funnel.retract();
-                                        funnelState = FunnelState.RETRACTING;
-                                        stateTimer.reset();
-                                    }
-                                    break;
-
-                                case RETRACTING:
-                                    if (stateTimer.milliseconds() >= FUNNEL_EXTEND_TIME_MS) {
-                                        // Shot complete → next shot
-                                        shotIndex++;
-                                        funnelState = FunnelState.RETRACTED;
-                                        stateTimer.reset();
-                                    }
-                                    break;
-                            }
+                            case RETRACTING:
+                                if (stateTimer.milliseconds() >= FUNNEL_EXTEND_TIME_MS) {
+                                    shotIndex++;
+                                    funnelState = FunnelState.RETRACTED;
+                                    stateTimer.reset();
+                                }
+                                break;
                         }
                     }
 
                 } else {
-                    state = State.DONE; // All shots complete
+                    state = State.DONE;
                 }
                 break;
 
             case DONE:
                 drive.stop();
                 shooter.stop();
+                intake.setPower(INTAKE_HOLD_POWER); // still hold balls
                 break;
         }
 
-        // --- Telemetry ---
-        AimController.AlignmentResult result = aimController.update();
         telemetry.addData("STATE", state);
         telemetry.addData("SHOT", shotIndex);
-        telemetry.addData("Spindexer Target", spindexer.getTargetPosition());
-        telemetry.addData("Spindexer Current", spindexer.getCurrentPosition());
-        telemetry.addData("Aligned?", result.aligned);
-        telemetry.addData("Shooter RPM", "%.0f / %.0f", shooter.getCurrentRPM(), shooter.getTargetRPM());
-        telemetry.addData("Funnel State", funnelState);
+        telemetry.addData("INTAKE", "HOLDING");
+        telemetry.addData("SHOOTER RPM", "%.0f / %.0f",
+                shooter.getCurrentRPM(), shooter.getTargetRPM());
+        telemetry.addData("FUNNEL", funnelState);
         telemetry.update();
     }
 }

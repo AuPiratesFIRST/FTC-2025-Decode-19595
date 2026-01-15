@@ -31,7 +31,7 @@ public class OldSpindexerSubsystem {
     private int targetPosition = 0;
 
     private static final int POSITION_TOLERANCE = 8; // Tighter tolerance for accuracy
-    private static final double SPEED_MULTIPLIER = 0.46; // 0.75 for torque and smoothness
+    private static final double SPEED_MULTIPLIER = 0.2; // 0.75 for torque and smoothness
 
     private boolean pidEnabled = false;
     private boolean tuningMode = false;

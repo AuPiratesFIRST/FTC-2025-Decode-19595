@@ -61,7 +61,16 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private static final long FUNNEL_HOLD_TIME_MS = 300;    // Hold time before retracting
     
     // === SHOOTER CONFIG ===
-    private static final double SHOOTER_RPM = 5225; 
+    private static final double SHOOTER_RPM = 5225;
+    
+    // === INTAKE POWER CONFIG (Keeper Wheel Pattern) ===
+    private static final double INTAKE_HOLD_POWER = 0.5;      // Always-on background power
+    private static final double INTAKE_FULL_POWER = 1.0;       // Full intake (trigger pressed)
+    private static final double INTAKE_REVERSE_POWER = -1.0;   // Reverse (bumper pressed)
+    
+    // === MANUAL SPINDEXER TUNING ===
+    private static final double SPINDEXER_MANUAL_SCALE = 0.6;   // Overall power limit
+    private static final double SPINDEXER_CUBIC_POWER = 3.0;    // Higher = less sensitive near center
 
     @Override
     public void runOpMode() {
@@ -272,34 +281,55 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
                 break;
         }
 
-        // Manual Spindexer (Gamepad 2 Right Stick)
+        // Manual Spindexer (Gamepad 2 Right Stick) - Cubic Scaling for Smooth Control
         if (currentMode == RobotMode.MANUAL_OVERRIDE) {
-            float stick = -gamepad2.right_stick_y;
-            if (Math.abs(stick) > STICK_DEADBAND) {
-                spindexer.setManualPower(stick * 0.75);
-            } else {
-                // ✅ FIX: Call stopManual() to truly disengage PID and motor
+            double raw = -gamepad2.right_stick_y;
+
+            // Deadband
+            if (Math.abs(raw) < STICK_DEADBAND) {
                 spindexer.stopManual();
+            } else {
+                // Remove deadband and normalize to [0, 1]
+                double normalized =
+                        (Math.abs(raw) - STICK_DEADBAND) / (1.0 - STICK_DEADBAND);
+                normalized = Math.copySign(normalized, raw);
+
+                // Cubic scaling (smooth near center, full power at extremes)
+                double scaled =
+                        Math.copySign(Math.pow(Math.abs(normalized), SPINDEXER_CUBIC_POWER),
+                                      normalized);
+
+                // Final power with safety scale
+                spindexer.setManualPower(scaled * SPINDEXER_MANUAL_SCALE);
             }
         }
     }
 
-    // Left Trigger: intake forward, Left Bumper: reverse
+    /**
+     * KEEPER WHEEL PATTERN: Intake always runs at low hold power, overridable by driver.
+     * Priority: Reverse > Full Intake > Hold Power
+     */
     private void handleIntake() {
-        // Optional safety: block intake while funnel is not retracted
+        // Safety: block intake while funnel is not retracted
         if (funnelState != FunnelState.RETRACTED) {
             intake.setPower(0);
             return;
         }
 
-        // Forward intake only when in intake mode
-        if (gamepad2.left_trigger > 0.1 && intakeMode) {
-            intake.setPower(1.0);
-        } else if (gamepad2.left_bumper) {
-            intake.setPower(-1.0);
-        } else {
-            intake.setPower(0);
+        // Priority 1: Reverse (clears jams, overrides everything)
+        if (gamepad2.left_bumper) {
+            intake.setPower(INTAKE_REVERSE_POWER);
+            return;
         }
+
+        // Priority 2: Full intake when trigger pressed AND in intake mode
+        if (gamepad2.left_trigger > 0.1 && intakeMode) {
+            intake.setPower(INTAKE_FULL_POWER);
+            return;
+        }
+
+        // Priority 3: Default background holding power (keeps balls seated)
+        intake.setPower(INTAKE_HOLD_POWER);
     }
 
     private void updateTelemetry() {
