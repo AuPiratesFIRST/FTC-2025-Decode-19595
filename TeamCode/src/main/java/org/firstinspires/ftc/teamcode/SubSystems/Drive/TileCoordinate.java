@@ -63,6 +63,8 @@ public class TileCoordinate {
         // Tab-line intersections are at seams between tiles, one tile in from the field edge.
         // Seams (in inches) = 24, 48, 72, 96, 120 => (colIndex + 1) * TILE_SIZE
         this.x = (colIndex + 1) * TILE_SIZE;
+        // Clamp row to valid range 1-5 to prevent invalid seam mapping
+        row = Math.max(1, Math.min(5, row));
         this.y = row * TILE_SIZE;
     }
 

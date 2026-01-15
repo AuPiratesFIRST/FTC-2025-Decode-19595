@@ -8,6 +8,8 @@ import com.qualcomm.robotcore.util.Range;
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
+import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
+import org.firstinspires.ftc.teamcode.SubSystems.Funnel.FunnelSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
 import org.firstinspires.ftc.teamcode.SubSystems.Control.AimController;
 
@@ -16,189 +18,227 @@ public class BlueMultiCycleAuto extends OpMode {
 
     // === Subsystems ===
     DriveSubsystem drive;
+    ShooterSubsystem shooter;
     IntakeSubsystem intake;
     OldSpindexerSubsystem spindexer;
+    FunnelSubsystem funnel;
     AprilTagNavigator aprilTag;
     AimController aim;
 
     ElapsedTime stateTimer = new ElapsedTime();
 
     // === Constants ===
-    static final double HEADING_GOAL = Math.toRadians(70);
-    static final double HEADING_INTAKE = Math.toRadians(180);
-
+    static final double SHOOTER_RPM = 5225;
     static final double INTAKE_HOLD_POWER = 0.57;
-
     static final double CREEP_POWER = 0.25;
-    static final double CREEP_DISTANCE_PER_BALL = 6.0; // inches
+    static final double CREEP_DISTANCE_PER_BALL = 6.0;
+
+    // === Funnel timing ===
+    static final long FUNNEL_EXTEND_TIME_MS = 400;
+    static final long FUNNEL_HOLD_TIME_MS = 300;
 
     // === Auto State ===
     private enum State {
         ALIGN_PRELOAD,
+        SPINUP_PRELOAD,
         SHOOT_PRELOAD,
+
         MOVE_TO_INTAKE,
         INTAKE_CREEP,
+
         RETURN_TO_SHOOT,
         ALIGN_FINAL,
+        SPINUP_FINAL,
         SHOOT_FINAL,
+
         DONE
     }
 
-    State state = State.ALIGN_PRELOAD;
+    private enum FunnelState { RETRACTED, EXTENDING, EXTENDED, RETRACTING }
 
+    State state = State.ALIGN_PRELOAD;
+    FunnelState funnelState = FunnelState.RETRACTED;
+
+    int shotIndex = 0;
     int intakeIndex = 0;
     double creepStartY;
-    double targetCreepY;
 
     @Override
     public void init() {
         drive = new DriveSubsystem(hardwareMap, telemetry);
+        shooter = new ShooterSubsystem(hardwareMap, telemetry);
         intake = new IntakeSubsystem(hardwareMap, telemetry);
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
+        funnel = new FunnelSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
 
         aim = new AimController(aprilTag, drive, telemetry);
         aim.setTargetTagId(24);
 
         drive.resetHeading();
-        spindexer.setIntakeMode(false); // preload = outtake geometry
+        spindexer.setIntakeMode(false);
+        funnel.retract();
     }
 
     @Override
     public void start() {
-        stateTimer.reset();
         intake.setPower(INTAKE_HOLD_POWER);
+        stateTimer.reset();
     }
 
     @Override
     public void loop() {
 
-        // === Always-on updates ===
+        // === Always-on ===
         spindexer.update();
+        shooter.updateVoltageCompensation();
         intake.setPower(INTAKE_HOLD_POWER);
 
         switch (state) {
 
-            /* =============================
-               PRELOAD ALIGN & SHOOT
-               ============================= */
+            /* ================= PRELOAD ================= */
 
             case ALIGN_PRELOAD:
                 AimController.AlignmentResult a = aim.update();
                 drive.drive(a.strafe, a.forward, a.turn);
-
                 if (a.aligned) {
                     drive.stop();
+                    state = State.SPINUP_PRELOAD;
+                }
+                break;
+
+            case SPINUP_PRELOAD:
+                shooter.setTargetRPM(SHOOTER_RPM);
+                if (shooter.isAtTargetRPM()) {
+                    shotIndex = 0;
                     state = State.SHOOT_PRELOAD;
-                    stateTimer.reset();
                 }
                 break;
 
             case SHOOT_PRELOAD:
-                // Assume your existing shooter logic runs here
-                if (stateTimer.milliseconds() > 2000) {
-                    spindexer.setIntakeMode(true);   // switch to intake
+                if (runShooterCycle()) {
+                    spindexer.setIntakeMode(true);
                     spindexer.lockCurrentPosition();
                     intakeIndex = 0;
                     state = State.MOVE_TO_INTAKE;
-                    stateTimer.reset();
                 }
                 break;
 
-            /* =============================
-               MOVE TO INTAKE ZONE
-               ============================= */
+            /* ================= INTAKE ================= */
 
             case MOVE_TO_INTAKE:
-                // Stop drive & record starting Y for odometry-backed creep
                 drive.stop();
-                creepStartY = drive.getPoseY(); // field-relative inches
-                targetCreepY = creepStartY - CREEP_DISTANCE_PER_BALL; // negative = forward
+                creepStartY = drive.getPoseY();
                 state = State.INTAKE_CREEP;
-                stateTimer.reset();
                 break;
 
-            /* =============================
-               INTAKE WITH HEADING HOLD
-               ============================= */
-
             case INTAKE_CREEP:
+                drive.drive(0, -CREEP_POWER, 0);
 
-                // --- Heading hold ---
-                double headingError = HEADING_INTAKE - drive.getHeading();
-                while (headingError > Math.PI) headingError -= 2 * Math.PI;
-                while (headingError < -Math.PI) headingError += 2 * Math.PI;
-                double turn = Range.clip(headingError * 0.8, -0.2, 0.2);
+                boolean reached = Math.abs(drive.getPoseY() - creepStartY)
+                        >= CREEP_DISTANCE_PER_BALL;
 
-                // --- Drive forward (negative Y) while holding heading ---
-                drive.drive(0, -CREEP_POWER, turn);
-
-                // --- Check odometry termination ---
-                double currentY = drive.getPoseY();
-                boolean reachedDistance = Math.abs(currentY - creepStartY) >= CREEP_DISTANCE_PER_BALL;
-
-                // --- OR spindexer loaded (ball detected) ---
-                boolean spindexerLoaded = Math.abs(
+                boolean loaded = Math.abs(
                         spindexer.shortestError(
                                 spindexer.getTargetPosition(),
                                 spindexer.getCurrentPosition()
                         )) > 40;
 
-                if (reachedDistance || spindexerLoaded) {
-                    drive.stop(); // stop drift
+                if (reached || loaded) {
+                    drive.stop();
+                    spindexer.goToPositionForCurrentMode(intakeIndex++);
+                    creepStartY = drive.getPoseY();
 
-                    spindexer.goToPositionForCurrentMode(intakeIndex);
-                    intakeIndex++;
-
-                    if (intakeIndex < 3) {
-                        // Prepare next creep
-                        creepStartY = drive.getPoseY();
-                        targetCreepY = creepStartY - CREEP_DISTANCE_PER_BALL;
-                        stateTimer.reset();
-                    } else {
-                        // All balls collected → return to shoot
+                    if (intakeIndex >= 3) {
                         spindexer.setIntakeMode(false);
                         state = State.RETURN_TO_SHOOT;
-                        stateTimer.reset();
                     }
                 }
                 break;
 
-            /* =============================
-               RETURN & FINAL SHOT
-               ============================= */
+            /* ================= FINAL SHOTS ================= */
 
             case RETURN_TO_SHOOT:
-                drive.stop();
                 state = State.ALIGN_FINAL;
                 break;
 
             case ALIGN_FINAL:
                 AimController.AlignmentResult f = aim.update();
                 drive.drive(f.strafe, f.forward, f.turn);
-
                 if (f.aligned) {
                     drive.stop();
+                    state = State.SPINUP_FINAL;
+                }
+                break;
+
+            case SPINUP_FINAL:
+                shooter.setTargetRPM(SHOOTER_RPM);
+                if (shooter.isAtTargetRPM()) {
+                    shotIndex = 0;
                     state = State.SHOOT_FINAL;
-                    stateTimer.reset();
                 }
                 break;
 
             case SHOOT_FINAL:
-                if (stateTimer.milliseconds() > 2000) {
+                if (runShooterCycle()) {
                     state = State.DONE;
                 }
                 break;
 
             case DONE:
                 drive.stop();
-                intake.setPower(INTAKE_HOLD_POWER);
+                shooter.stop();
                 break;
         }
 
         telemetry.addData("STATE", state);
-        telemetry.addData("INTAKE INDEX", intakeIndex);
-        telemetry.addData("POSE Y", drive.getPoseY());
+        telemetry.addData("SHOT", shotIndex);
+        telemetry.addData("FUNNEL", funnelState);
+        telemetry.addData("RPM", shooter.getCurrentRPM());
         telemetry.update();
+    }
+
+    /* ================= SHOOTER HELPER ================= */
+
+    private boolean runShooterCycle() {
+
+        if (shotIndex >= 3) return true;
+
+        spindexer.goToPositionForCurrentMode(shotIndex);
+
+        if (!spindexer.isAtPosition() || !shooter.isAtTargetRPM())
+            return false;
+
+        switch (funnelState) {
+
+            case RETRACTED:
+                funnel.extend();
+                funnelState = FunnelState.EXTENDING;
+                stateTimer.reset();
+                break;
+
+            case EXTENDING:
+                if (stateTimer.milliseconds() > FUNNEL_EXTEND_TIME_MS) {
+                    funnelState = FunnelState.EXTENDED;
+                    stateTimer.reset();
+                }
+                break;
+
+            case EXTENDED:
+                if (stateTimer.milliseconds() > FUNNEL_HOLD_TIME_MS) {
+                    funnel.retract();
+                    funnelState = FunnelState.RETRACTING;
+                    stateTimer.reset();
+                }
+                break;
+
+            case RETRACTING:
+                if (stateTimer.milliseconds() > FUNNEL_EXTEND_TIME_MS) {
+                    funnelState = FunnelState.RETRACTED;
+                    shotIndex++;
+                }
+                break;
+        }
+        return false;
     }
 }

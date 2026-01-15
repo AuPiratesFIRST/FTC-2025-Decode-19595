@@ -73,6 +73,9 @@ public class TileNavigator {
 
         // Calculate turn needed to face target
         double turnAngle = angle - currentHeading;
+        // Normalize turn angle to [-π, π] range to ensure shortest rotation path
+        while (turnAngle > Math.PI) turnAngle -= 2 * Math.PI;
+        while (turnAngle < -Math.PI) turnAngle += 2 * Math.PI;
         double turn = Math.sin(turnAngle) * power * 0.5; // 0.5 reduces turn aggressiveness
 
         // CRITICAL FIX: Calculate relative angle for robot-centric drive
@@ -89,9 +92,9 @@ public class TileNavigator {
         // Apply movement via DriveSubsystem
         drive.drive(forward, strafe, turn);
 
-        // Update position estimate (simplified - in real implementation, use odometry)
-        // NOTE: Heading is NOT tracked here - DriveSubsystem IMU provides real-time heading
-        currentPosition = target;
+        // NOTE: Position updates should come from odometry/AprilTag localization
+        // DO NOT update currentPosition here - that would teleport the robot in software
+        // even if wheels slip, hit obstacles, or power is insufficient
 
         if (telemetry != null) {
             telemetry.addData("Tile Navigation", "Moving to %s", target.getTilePosition());

@@ -100,7 +100,7 @@ public class RedAlliancePedroAuto extends OpMode {
         
         // Initialize shooter state machine
         shooterStateMachine = new ShooterStateMachine(
-            hardwareMap, shooter, spindexer, funnel, telemetry);
+             shooter, spindexer, funnel, telemetry);
         
         // Build paths
         buildPaths();

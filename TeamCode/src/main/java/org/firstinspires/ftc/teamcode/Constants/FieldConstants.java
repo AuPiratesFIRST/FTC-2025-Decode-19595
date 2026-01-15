@@ -35,14 +35,19 @@ public final class FieldConstants {
     // Approximately 7.5" above lip for consistent scoring
     public static final double SCORING_TARGET_HEIGHT = 46.0;
 
-    // Convenience goal centers in field coordinates (inches)
-    // Blue Goal is on the LEFT wall (X=0)
-    public static final double GOAL_X_BLUE = 0.0;
-    public static final double GOAL_Y_BLUE = 72.0;
+    // Triangular goal scoring face centers (inches)
+    // Goals are right triangles with two sides flush against field walls
+    // The hypotenuse (angled at 45°) is the scoring face
+    
+    // Blue Goal (A6 corner: touches left wall X=0 and top wall Y=144)
+    // Scoring face center is 12" right and 12" down from corner
+    public static final double GOAL_X_BLUE = 12.0;
+    public static final double GOAL_Y_BLUE = 132.0;
 
-    // Red Goal is on the RIGHT wall (X=144)
-    public static final double GOAL_X_RED = 144.0;
-    public static final double GOAL_Y_RED = 72.0;
+    // Red Goal (F6 corner: touches right wall X=144 and top wall Y=144)
+    // Scoring face center is 12" left and 12" down from corner
+    public static final double GOAL_X_RED = 132.0;
+    public static final double GOAL_Y_RED = 132.0;
 
     // ==================== DECODE STARTING POSITIONS ====================
     // Robot starts parallel to walls, facing downfield (away from driver/audience)
