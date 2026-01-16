@@ -418,6 +418,23 @@ public class DriveSubsystem {
         }
     }
 
+    /**
+     * Get signed heading error between current heading and a target heading.
+     *
+     * @param targetDegrees Target heading in DEGREES
+     * @return Error in DEGREES (positive = turn CCW, negative = turn CW)
+     */
+    public double getHeadingError(double targetDegrees) {
+        double currentDegrees = Math.toDegrees(getHeading());
+        double error = targetDegrees - currentDegrees;
+
+        // Wrap to [-180, 180]
+        while (error > 180) error -= 360;
+        while (error < -180) error += 360;
+
+        return error;
+    }
+
     // =================== QUERY METHODS ===================
 
     /**
@@ -572,24 +589,6 @@ public class DriveSubsystem {
             integral = 0.0;
             lastError = 0.0;
         }
-
-        /**
- * Get signed heading error between current heading and a target heading.
- *
- * @param targetDegrees Target heading in DEGREES
- * @return Error in DEGREES (positive = turn CCW, negative = turn CW)
- */
-public double getHeadingError(double targetDegrees) {
-    double currentDegrees = Math.toDegrees(getHeading());
-    double error = targetDegrees - currentDegrees;
-
-    // Wrap to [-180, 180]
-    while (error > 180) error -= 360;
-    while (error < -180) error += 360;
-
-    return error;
-}
-
 
         /**
          * Normalize angle to [-π, π] range.
