@@ -17,8 +17,8 @@ public class OldSpindexerSubsystem {
     private static final double TICKS_PER_REVOLUTION = 2150.8;
 
     // Position definitions
-    private static final int[] INTAKE_POSITIONS = { 10, 717, 1434 };
-    private static final int[] OUTTAKE_POSITIONS = { 268, 451, 630 };
+    public static final int[] INTAKE_POSITIONS = { 10, 717, 1434 };
+    public static final int[] OUTTAKE_POSITIONS = { 268, 451, 630 };
 
     // COMPETITION TUNED COEFFICIENTS - Aggressive "Lockdown" Tuning
     private double kP = 0.02350000000000001;     // High P for immediate reaction
@@ -31,7 +31,7 @@ public class OldSpindexerSubsystem {
     private int targetPosition = 0;
 
     private static final int POSITION_TOLERANCE = 8; // Tighter tolerance for accuracy
-    private static final double SPEED_MULTIPLIER = 0.2; // 0.75 for torque and smoothness
+    private static final double SPEED_MULTIPLIER = 0.35; // 0.75 for torque and smoothness
 
     private boolean pidEnabled = false;
     private boolean tuningMode = false;
@@ -140,6 +140,45 @@ public class OldSpindexerSubsystem {
 
     public void lockCurrentPosition() {
         targetPosition = normalizeTicks(spindexerMotor.getCurrentPosition());
+        setPIDEnabled(true);
+        resetPIDOnly();
+    }
+
+    /**
+     * Move to target position using FORWARD-ONLY (clockwise) movement.
+     * Ensures shortest forward path without going backward.
+     */
+    public void goToPositionForwardOnly(int ticksTarget) {
+        int current = normalizeTicks(spindexerMotor.getCurrentPosition());
+        int normalized = normalizeTicks(ticksTarget);
+        
+        // Calculate forward distance
+        int forwardDistance = (normalized - current + (int) TICKS_PER_REVOLUTION) % (int) TICKS_PER_REVOLUTION;
+        
+        // Set target to current + forward distance to ensure forward movement
+        targetPosition = current + forwardDistance;
+        setPIDEnabled(true);
+        resetPIDOnly();
+    }
+
+    /**
+     * Move to target position using BACKWARD-ONLY (counter-clockwise) movement.
+     * Ensures movement in reverse direction.
+     */
+    public void goToPositionBackwardOnly(int ticksTarget) {
+        int current = normalizeTicks(spindexerMotor.getCurrentPosition());
+        int normalized = normalizeTicks(ticksTarget);
+        
+        // Calculate backward distance
+        int backwardDistance = (current - normalized + (int) TICKS_PER_REVOLUTION) % (int) TICKS_PER_REVOLUTION;
+        
+        // If backward distance is 0, go full revolution backward
+        if (backwardDistance == 0) {
+            backwardDistance = (int) TICKS_PER_REVOLUTION;
+        }
+        
+        // Set target to current - backward distance to ensure backward movement
+        targetPosition = current - backwardDistance;
         setPIDEnabled(true);
         resetPIDOnly();
     }

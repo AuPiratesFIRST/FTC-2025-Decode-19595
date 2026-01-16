@@ -3,9 +3,10 @@ package org.firstinspires.ftc.teamcode.Auto;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.util.ElapsedTime;
-import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
+import org.firstinspires.ftc.teamcode.SubSystems.Drive.TileCoordinate;
+import org.firstinspires.ftc.teamcode.SubSystems.Drive.TileNavigator;
 import org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
@@ -24,6 +25,7 @@ public class BlueMultiCycleAuto extends OpMode {
     FunnelSubsystem funnel;
     AprilTagNavigator aprilTag;
     AimController aim;
+    TileNavigator tileNavigator;
 
     ElapsedTime stateTimer = new ElapsedTime();
 
@@ -31,7 +33,7 @@ public class BlueMultiCycleAuto extends OpMode {
     static final double SHOOTER_RPM = 5225;
     static final double INTAKE_HOLD_POWER = 0.57;
     static final double CREEP_POWER = 0.25;
-    static final double CREEP_DISTANCE_PER_BALL = 6.0;
+    static final double CREEP_DISTANCE_PER_BALL = 6.0; // inches
 
     // === Funnel timing ===
     static final long FUNNEL_EXTEND_TIME_MS = 400;
@@ -61,7 +63,9 @@ public class BlueMultiCycleAuto extends OpMode {
 
     int shotIndex = 0;
     int intakeIndex = 0;
-    double creepStartY;
+
+    // Target position for TileNavigator during intake
+    TileCoordinate intakeTarget;
 
     @Override
     public void init() {
@@ -74,6 +78,9 @@ public class BlueMultiCycleAuto extends OpMode {
 
         aim = new AimController(aprilTag, drive, telemetry);
         aim.setTargetTagId(24);
+
+        tileNavigator = new TileNavigator(drive, telemetry);
+        tileNavigator.setPosition(new TileCoordinate(0, drive.getPoseY())); // initial Y
 
         drive.resetHeading();
         spindexer.setIntakeMode(false);
@@ -89,7 +96,7 @@ public class BlueMultiCycleAuto extends OpMode {
     @Override
     public void loop() {
 
-        // === Always-on ===
+        // === Always-on updates ===
         spindexer.update();
         shooter.updateVoltageCompensation();
         intake.setPower(INTAKE_HOLD_POWER);
@@ -120,6 +127,11 @@ public class BlueMultiCycleAuto extends OpMode {
                     spindexer.setIntakeMode(true);
                     spindexer.lockCurrentPosition();
                     intakeIndex = 0;
+                    // Set intake target for TileNavigator
+                    intakeTarget = new TileCoordinate(
+                            tileNavigator.getCurrentPosition().getX(),
+                            tileNavigator.getCurrentPosition().getY() - CREEP_DISTANCE_PER_BALL
+                    );
                     state = State.MOVE_TO_INTAKE;
                 }
                 break;
@@ -127,31 +139,36 @@ public class BlueMultiCycleAuto extends OpMode {
             /* ================= INTAKE ================= */
 
             case MOVE_TO_INTAKE:
-                drive.stop();
-                creepStartY = drive.getPoseY();
+                // Move towards the next intake position
+                tileNavigator.moveToPosition(intakeTarget, CREEP_POWER);
+                stateTimer.reset();
                 state = State.INTAKE_CREEP;
                 break;
 
             case INTAKE_CREEP:
-                drive.drive(0, -CREEP_POWER, 0);
-
-                boolean reached = Math.abs(drive.getPoseY() - creepStartY)
-                        >= CREEP_DISTANCE_PER_BALL;
-
+                // Check if we reached intake target or spindexer loaded
                 boolean loaded = Math.abs(
                         spindexer.shortestError(
                                 spindexer.getTargetPosition(),
                                 spindexer.getCurrentPosition()
                         )) > 40;
 
-                if (reached || loaded) {
+                boolean reached = tileNavigator.isAtTile(intakeTarget, 0.5); // 0.5 inch tolerance
+
+                if (loaded || reached) {
                     drive.stop();
                     spindexer.goToPositionForCurrentMode(intakeIndex++);
-                    creepStartY = drive.getPoseY();
 
                     if (intakeIndex >= 3) {
                         spindexer.setIntakeMode(false);
                         state = State.RETURN_TO_SHOOT;
+                    } else {
+                        // Move next 6" for next ball
+                        intakeTarget = new TileCoordinate(
+                                intakeTarget.getX(),
+                                intakeTarget.getY() - CREEP_DISTANCE_PER_BALL
+                        );
+                        tileNavigator.moveToPosition(intakeTarget, CREEP_POWER);
                     }
                 }
                 break;
@@ -191,10 +208,12 @@ public class BlueMultiCycleAuto extends OpMode {
                 break;
         }
 
+        // === Telemetry ===
         telemetry.addData("STATE", state);
         telemetry.addData("SHOT", shotIndex);
         telemetry.addData("FUNNEL", funnelState);
         telemetry.addData("RPM", shooter.getCurrentRPM());
+        telemetry.addData("Intake Target", intakeTarget != null ? intakeTarget.toString() : "N/A");
         telemetry.update();
     }
 

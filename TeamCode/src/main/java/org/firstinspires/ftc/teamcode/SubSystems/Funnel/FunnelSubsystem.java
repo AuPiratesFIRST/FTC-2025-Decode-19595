@@ -21,10 +21,10 @@ public class FunnelSubsystem {
     // PHYSICAL CALIBRATION:
     // With PWM 500-2500 µs, 1.0 ≈ 270°. If your cams collide near 180°, drop EXTEND to ~0.66.
     private static final double LEFT_RETRACT  = 1.0;
-    private static final double LEFT_EXTEND   = 0.0; // Adjust if 270° is too far
+    private static final double LEFT_EXTEND   = 0.5; // Adjust if 270° is too far
     
     private static final double RIGHT_RETRACT = 1.0;
-    private static final double RIGHT_EXTEND  = 0.0; // Adjust if 270° is too far
+    private static final double RIGHT_EXTEND  = 0.5; // Adjust if 270° is too far
     
     private boolean isExtended = false;
 

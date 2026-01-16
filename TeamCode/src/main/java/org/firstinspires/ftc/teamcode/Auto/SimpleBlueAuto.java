@@ -33,10 +33,12 @@ public class SimpleBlueAuto extends OpMode {
     private static final double INTAKE_HOLD_POWER = 0.57;
 
     // --- Funnel state machine ---
-    private enum FunnelState { RETRACTED, EXTENDING, EXTENDED, RETRACTING }
+    private enum FunnelState { RETRACTED, EXTENDING, EXTENDED, RETRACTING, WAITING_FOR_SPINDEXER }
     private FunnelState funnelState = FunnelState.RETRACTED;
-    private static final long FUNNEL_EXTEND_TIME_MS = 400;
+    private static final long FUNNEL_EXTEND_TIME_MS = 300; // Funnel extends quickly (~0.3s)
+    private static final long FUNNEL_RETRACT_TIME_MS = 600; // Longer retract to fully clear
     private static final long FUNNEL_HOLD_TIME_MS = 300;
+    private static final long FUNNEL_CLEAR_BUFFER_MS = 150; // Extra buffer before spindexer moves
 
     // --- Auto states ---
     private enum State { ALIGN, SPIN_UP, FIRE, DONE }
@@ -145,7 +147,14 @@ public class SimpleBlueAuto extends OpMode {
                                 break;
 
                             case RETRACTING:
-                                if (stateTimer.milliseconds() >= FUNNEL_EXTEND_TIME_MS) {
+                                if (stateTimer.milliseconds() >= FUNNEL_RETRACT_TIME_MS) {
+                                    funnelState = FunnelState.WAITING_FOR_SPINDEXER;
+                                    stateTimer.reset();
+                                }
+                                break;
+
+                            case WAITING_FOR_SPINDEXER:
+                                if (stateTimer.milliseconds() >= FUNNEL_CLEAR_BUFFER_MS) {
                                     shotIndex++;
                                     funnelState = FunnelState.RETRACTED;
                                     stateTimer.reset();

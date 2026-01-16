@@ -265,9 +265,23 @@ public class BlueAllianceTeleOp extends LinearOpMode {
         // Mode toggle (D-Pad Down) - only in automated mode
         boolean dpadDown = gamepad2.dpad_down;
         if (dpadDown && !dpadDownLast && !manualControlMode) {
+            boolean wasIntakeMode = intakeMode;
             intakeMode = !intakeMode;
             spindexerPositionIndex = 0; // Reset position when mode changes
             spindexer.setIntakeMode(intakeMode); // Update subsystem mode for position selection
+            
+            // If switching from intake to outtake, use backward movement
+            if (wasIntakeMode && !intakeMode) {
+                int targetTicks = intakeMode ? 
+                    OldSpindexerSubsystem.INTAKE_POSITIONS[0] : 
+                    OldSpindexerSubsystem.OUTTAKE_POSITIONS[0];
+                spindexer.goToPositionBackwardOnly(targetTicks);
+                spindexerIsMoving = true;
+            } else {
+                // Otherwise use normal shortest path
+                spindexer.goToPosition(spindexerPositionIndex);
+                spindexerIsMoving = true;
+            }
         }
         dpadDownLast = dpadDown;
 

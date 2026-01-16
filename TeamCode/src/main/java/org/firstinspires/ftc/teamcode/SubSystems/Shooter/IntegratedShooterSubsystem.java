@@ -226,6 +226,14 @@ public class IntegratedShooterSubsystem {
         return Math.abs(getCurrentRPM() - targetRPM) < targetRPM * 0.03;
     }
 
+    /**
+     * Alias for isAtSpeed() - checks if shooter is at target RPM.
+     * @return True if shooter velocity is within 3% of target
+     */
+    public boolean isAtTargetRPM() {
+        return isAtSpeed();
+    }
+
     /* ================= SHOT CONFIRM ================= */
 
     public boolean shotDetected() {
@@ -237,7 +245,11 @@ public class IntegratedShooterSubsystem {
 
     /* ================= VOLTAGE ================= */
 
-    private void updateVoltageCompensation() {
+    /**
+     * Update voltage compensation for stable RPM across battery states.
+     * Public method for test/calibration.
+     */
+    public void updateVoltageCompensation() {
         double v = Math.max(voltageSensor.getVoltage(), 1);
         double kF = baseKf * (NOMINAL_VOLTAGE / v);
 
@@ -246,5 +258,52 @@ public class IntegratedShooterSubsystem {
 
         leftMotor.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, pidf);
         rightMotor.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, pidf);
+    }
+
+    /* ================= CONTROL ================= */
+
+    /**
+     * Stop both shooter motors immediately.
+     */
+    public void stop() {
+        targetRPM = 0;
+        leftMotor.setVelocity(0);
+        rightMotor.setVelocity(0);
+    }
+
+    /**
+     * Auto-aim and spin shooter based on robot position and alliance.
+     * 
+     * @param robotPos Current robot tile position
+     * @param isBlueAlliance True for blue, false for red
+     */
+    public void autoAimAndSpin(TileCoordinate robotPos, boolean isBlueAlliance) {
+        String tile = robotPos.getTilePosition();
+        
+        // Check if tile has direct mapping
+        if (TILE_RPM.containsKey(tile)) {
+            setTargetRPM(TILE_RPM.get(tile));
+            return;
+        }
+
+        // Use triangle interpolation as fallback
+        TileCoordinate goal = isBlueAlliance ? TRI_A6 : TRI_F6;
+        double distance = robotPos.distanceTo(goal);
+        
+        // Default to average if outside interpolation range
+        double rpm = 4800.0; // conservative default
+        setTargetRPM(rpm);
+    }
+
+    /**
+     * Update telemetry with shooter state.
+     */
+    public void updateTelemetry() {
+        if (telemetry != null) {
+            telemetry.addData("Shooter Target RPM", "%.0f", targetRPM);
+            telemetry.addData("Shooter Current RPM", "%.0f", getCurrentRPM());
+            telemetry.addData("Shooter At Speed", isAtSpeed());
+            telemetry.addData("Battery Voltage", "%.2f V", voltageSensor.getVoltage());
+        }
     }
 }

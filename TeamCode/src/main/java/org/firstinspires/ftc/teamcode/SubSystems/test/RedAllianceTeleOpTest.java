@@ -44,6 +44,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private boolean lastInputB = false;
     private boolean lastInputX = false;
     private boolean lastInputDpadDown = false;
+    private boolean lastInputDpadLeft = false;
 
     // === DRIVE INPUT CONSTANTS ===
     private static final double STICK_DEADBAND = 0.05;     // Prevent drift from stick noise
@@ -111,6 +112,29 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
             }
             lastInputX = gamepad2.x;
 
+            // 1.5 INTAKE/OUTTAKE MODE TOGGLE (D-Pad Left)
+            if (gamepad2.dpad_left && !lastInputDpadLeft) {
+                boolean wasIntakeMode = intakeMode;
+                intakeMode = !intakeMode;
+                spindexer.setIntakeMode(intakeMode);
+                // Reset to position 0 in the new mode
+                spindexerIndex = 0;
+                
+                // If switching from intake to outtake, use backward movement
+                if (wasIntakeMode && !intakeMode) {
+                    int targetTicks = OldSpindexerSubsystem.OUTTAKE_POSITIONS[0];
+                    spindexer.goToPositionBackwardOnly(targetTicks);
+                } else {
+                    // Otherwise use normal shortest path
+                    spindexer.goToPositionForCurrentMode(0);
+                }
+                
+                if (intakeMode) {
+                    currentMode = RobotMode.INTAKE;
+                }
+            }
+            lastInputDpadLeft = gamepad2.dpad_left;
+
             // 2. STATE MACHINE TRANSITIONS
             if (currentMode != RobotMode.MANUAL_OVERRIDE) {
                 handleCircularTransitions();
@@ -143,7 +167,8 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
             intakeMode = false;
             spindexerIndex = 0;
             spindexer.setIntakeMode(false);
-            spindexer.goToPositionForCurrentMode(0);
+            // ✅ FORWARD-ONLY: Guarantee clockwise movement from intake to outtake
+            spindexer.goToPositionForwardOnly(OldSpindexerSubsystem.OUTTAKE_POSITIONS[0]);
             currentMode = RobotMode.SHOOTING_SETUP;
         }
         lastInputB = gamepad2.b;
@@ -237,8 +262,9 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     }
 
     private void executeHardwareActions() {
-        // Shooter logic: Spin up during setup/ready or manual override
-        if (currentMode == RobotMode.SHOOTING_READY || currentMode == RobotMode.SHOOTING_SETUP || gamepad2.right_bumper) {
+        // Shooter logic: Spin up during setup/ready or manual override (but NOT in intake mode)
+        if ((currentMode == RobotMode.SHOOTING_READY || currentMode == RobotMode.SHOOTING_SETUP || gamepad2.right_bumper) 
+                && !intakeMode) {
             shooter.setTargetRPM(SHOOTER_RPM);
         } else {
             shooter.stop();
@@ -249,7 +275,10 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         switch (funnelState) {
             case RETRACTED:
                 // Trigger pressed and we're in shooting mode? Start extending
-                if (gamepad2.right_trigger > 0.5 && (currentMode == RobotMode.SHOOTING_READY || currentMode == RobotMode.MANUAL_OVERRIDE)) {
+                // ✅ CRITICAL: Only extend if spindexer is at position (prevents collision)
+                if (gamepad2.right_trigger > 0.5 
+                        && (currentMode == RobotMode.SHOOTING_READY || currentMode == RobotMode.MANUAL_OVERRIDE)
+                        && spindexer.isAtPosition()) {
                     funnel.extend();
                     funnelState = FunnelState.EXTENDING;
                     funnelTimer = System.currentTimeMillis();
@@ -333,9 +362,16 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     }
 
     private void updateTelemetry() {
+        telemetry.addLine("=== GAMEPAD 2 CONTROLS ===");
+        telemetry.addLine("B = Start Shooting | A = Next Ball");
+        telemetry.addLine("Y = Auto-Align | X = Manual Override");
+        telemetry.addLine("D↓ = Reset | D→ = Toggle Mode | RB = Spin");
+        telemetry.addLine("RT = Shoot | LT = Intake | LB = Reverse");
+        telemetry.addLine();
+        
         telemetry.addData("PHASE", currentMode);
         telemetry.addData("TARGET SLOT", spindexerIndex + 1);
-        telemetry.addData("INTAKE MODE", intakeMode);
+        telemetry.addData("SPINDEXER MODE", intakeMode ? "INTAKE" : "OUTTAKE");
         telemetry.addData("FUNNEL STATE", funnelState);
         
         AprilTagDetection bestTag = aprilTag.getBestAllianceGoalDetection();
