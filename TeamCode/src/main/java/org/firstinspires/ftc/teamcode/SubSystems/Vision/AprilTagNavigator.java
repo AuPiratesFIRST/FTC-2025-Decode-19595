@@ -180,7 +180,6 @@ public class AprilTagNavigator {
         return aprilTag.getDetections().stream()
                 .filter(tag -> tag.id == 20 || tag.id == 24)
                 .filter(tag -> tag.ftcPose.range <= MAX_DETECTION_DISTANCE)
-                .filter(tag -> tag.decisionMargin >= MIN_DECISION_MARGIN)
                 .min(Comparator.comparingDouble(tag -> tag.ftcPose.range))
                 .orElse(null);
     }

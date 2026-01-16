@@ -21,9 +21,20 @@ public class OldSpindexerSubsystem {
     public static final int[] OUTTAKE_POSITIONS = { 268, 451, 630 };
 
     // COMPETITION TUNED COEFFICIENTS - Aggressive "Lockdown" Tuning
-    private double kP = 0.02350000000000001;     // High P for immediate reaction
-    private double kI = 0.00038000000000000035;   // I builds up the "Active Hold" force
-    private double kD =  0.01059999999999999;    // D prevents high-speed shaking
+    // Base coefficients for empty (intake) mode
+    private static final double kP_EMPTY = 0.02350000000000001;     // High P for immediate reaction
+    private static final double kI_EMPTY = 0.00038000000000000035;   // I builds up the "Active Hold" force
+    private static final double kD_EMPTY = 0.01059999999999999;    // D prevents high-speed shaking
+    
+    // Enhanced coefficients for loaded (outtake) mode - prevents sag under load
+    private static final double kP_LOADED = 0.035;   // ~1.5× boost for faster response under load
+    private static final double kI_LOADED = 0.0005;  // Slightly higher integral for steady hold
+    private static final double kD_LOADED = 0.012;   // Increased damping to prevent overshoot
+    
+    // Active coefficients (dynamically selected based on mode)
+    private double kP = kP_EMPTY;
+    private double kI = kI_EMPTY;
+    private double kD = kD_EMPTY;
 
     private double lastError = 0;
     private double integralSum = 0;
@@ -31,7 +42,8 @@ public class OldSpindexerSubsystem {
     private int targetPosition = 0;
 
     private static final int POSITION_TOLERANCE = 8; // Tighter tolerance for accuracy
-    private static final double SPEED_MULTIPLIER = 0.35; // 0.75 for torque and smoothness
+    private static final double SPEED_MULTIPLIER = 0.4; // Increased from 0.35 for better response
+    private static final double GRAVITY_FEEDFORWARD = 0.08; // 8% power to counter gravity in vertical spindexer
 
     private boolean pidEnabled = false;
     private boolean tuningMode = false;
@@ -59,9 +71,22 @@ public class OldSpindexerSubsystem {
     /**
      * CORE CONTROL LOOP
      * Implements "Active Force Feedback" to resist external pressure.
+     * Uses dynamic PID coefficients based on load state (intake vs outtake mode).
      */
     public void update() {
         if (!pidEnabled) return;
+
+        // Dynamically adjust PID coefficients based on mode (loaded vs empty)
+        if (intakeMode) {
+            kP = kP_EMPTY;
+            kI = kI_EMPTY;
+            kD = kD_EMPTY;
+        } else {
+            // Outtake mode = loaded with balls, use higher gains to prevent sag
+            kP = kP_LOADED;
+            kI = kI_LOADED;
+            kD = kD_LOADED;
+        }
 
         int currentPosition = spindexerMotor.getCurrentPosition();
         double error = shortestError(targetPosition, currentPosition);
@@ -91,7 +116,21 @@ public class OldSpindexerSubsystem {
             output = Math.signum(error) * 0.05;
         }
 
-        spindexerMotor.setPower(Range.clip(output, -1.0, 1.0) * SPEED_MULTIPLIER);
+        // GRAVITY FEEDFORWARD: For vertical spindexer, add constant force to counter gravity
+        // This helps prevent sag when loaded (outtake mode) without waiting for PID to react
+        double feedforward = 0;
+        if (!intakeMode) {
+            // Outtake mode = loaded, apply feedforward to hold against gravity
+            feedforward = GRAVITY_FEEDFORWARD;
+            // If moving downward (target below current), assist the movement
+            if (error < 0) {
+                feedforward = -feedforward;
+            }
+        }
+
+        // Combine PID output with feedforward
+        double finalOutput = output + feedforward;
+        spindexerMotor.setPower(Range.clip(finalOutput, -1.0, 1.0) * SPEED_MULTIPLIER);
     }
 
     // === COMPATIBILITY METHODS (Required for your existing code) ===
@@ -136,6 +175,19 @@ public class OldSpindexerSubsystem {
         targetPosition = normalizeTicks(ticks);
         setPIDEnabled(true);
         resetPIDOnly();
+    }
+
+    /**
+     * Switch to outtake mode using forward-only movement to prevent jamming.
+     * Call this when switching from intake → outtake to ensure balls don't get pushed backward.
+     * 
+     * @param index The position index (0-2) to move to in outtake mode
+     */
+    public void switchToOuttakeModeForwardOnly(int index) {
+        if (index < 0 || index > 2) return;
+        intakeMode = false;
+        int targetTicks = OUTTAKE_POSITIONS[index];
+        goToPositionForwardOnly(targetTicks);
     }
 
     public void lockCurrentPosition() {
@@ -230,7 +282,21 @@ public class OldSpindexerSubsystem {
     }
 
     public void setPIDEnabled(boolean enabled) { this.pidEnabled = enabled; }
-    public void setIntakeMode(boolean intake) { this.intakeMode = intake; }
+    
+    /**
+     * Set intake mode. When switching modes, PID is reset to prevent windup from previous mode.
+     * 
+     * @param intake true for intake mode (empty), false for outtake mode (loaded)
+     */
+    public void setIntakeMode(boolean intake) { 
+        boolean modeChanged = this.intakeMode != intake;
+        this.intakeMode = intake;
+        // Reset PID when switching modes to prevent windup from previous mode's error
+        if (modeChanged) {
+            resetPIDOnly();
+        }
+    }
+    
     public void setTuningMode(boolean enabled) { this.tuningMode = enabled; }
     public boolean isSettling() { return false; }
     public int getCurrentPosition() { return spindexerMotor.getCurrentPosition(); }

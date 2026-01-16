@@ -3,6 +3,7 @@ package org.firstinspires.ftc.teamcode.TeleOp;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.util.ElapsedTime;
+import com.qualcomm.robotcore.util.Range;
 import org.firstinspires.ftc.robotcore.external.JavaUtil;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 
@@ -10,8 +11,11 @@ import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Intake.IntakeSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Spindexer.OldSpindexerSubsystem;
+import org.firstinspires.ftc.teamcode.SubSystems.Funnel.FunnelSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
-//import org.firstinspires.ftc.teamcode.SubSystems.Funnel.FunnelSubsystem;
+import org.firstinspires.ftc.teamcode.SubSystems.Vision.ObeliskMotifDetector;
+import org.firstinspires.ftc.teamcode.SubSystems.Control.AimController;
+import org.firstinspires.ftc.teamcode.SubSystems.Scoring.ArtifactColor;
 
 /**
  * Red Alliance TeleOp with AprilTag alignment and automated scoring sequence.
@@ -27,14 +31,15 @@ import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
  * Gamepad 2 (Operator):
  * - Left Trigger: Intake forward
  * - Left Bumper: Intake reverse
- * - Right Bumper: Toggle shooter on/off
+ * - Right Bumper: Toggle shooter on/off (manual override)
+ * - Right Trigger: Extend funnel to shoot (when ready)
  * - A Button: Advance spindexer position (automated sequence)
  * - X Button: Toggle manual/automated spindexer control
- * - D-Pad Down: Toggle intake/outtake mode
- * - D-Pad Left/Right: Manual spindexer control (when in manual mode)
+ * - D-Pad Down: Reset to intake mode
+ * - D-Pad Left: Toggle intake/outtake mode
+ * - D-Pad Right: Manual spindexer position increment (when in manual mode)
  * - Right Stick Y: Manual spindexer power control (when in manual mode)
  * - Y Button: Align to Red Alliance goal (Tag 24)
- * - B Button: Toggle funnel servos (extend/retract)
  * 
  * Automated Sequence:
  * - INTAKE: Move spindexer → Wait for position → Ball settling → Ready
@@ -43,33 +48,30 @@ import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
 @TeleOp(name = "Red Alliance TeleOp", group = "TeleOp")
 public class RedAllianceTeleOp extends LinearOpMode {
 
+    private enum RobotMode { INTAKE, SHOOTING_SETUP, SHOOTING_READY, MANUAL_OVERRIDE }
+    private enum FunnelState { RETRACTED, EXTENDING, EXTENDED, RETRACTING }
+
     // Subsystems
     private DriveSubsystem drive;
     private IntakeSubsystem intake;
     private ShooterSubsystem shooter;
     private OldSpindexerSubsystem spindexer;
+    private FunnelSubsystem funnel;
     private AprilTagNavigator aprilTag;
-//    private FunnelSubsystem funnel;
+    private AimController aimController;
 
-    // Spindexer control variables
+    // State Variables
+    private RobotMode currentMode = RobotMode.INTAKE;
+    private FunnelState funnelState = FunnelState.RETRACTED;
     private int spindexerPositionIndex = 0;
     private boolean intakeMode = true; // true = Intake, false = Outtake
-    private boolean spindexerIsMoving = false;
-    private boolean shooterNeedsToSpinUp = true;
-    private boolean ballSettling = false;
-    private boolean manualControlMode = false; // true = Manual, false = Automated
-    
-    // Shooter control flags - separate from automated sequence
-    private boolean shooterManuallyControlled = false; // Track if shooter is manually controlled
-    private int shotNumber = 0;
-    
-    // Timers
-    private ElapsedTime actionTimer; // Used for shooter stability
-    private ElapsedTime shotTimer;   // Used for shot-to-shot delays
-    
-    // Button state tracking
+    private double driveSpeed = 1.0;
+    private boolean inverseDirection = false;
+
+    // Input Latches
     private boolean spindexerPressLast = false;
     private boolean dpadDownLast = false;
+    private boolean dpadUpLast = false;
     private boolean rbPressedLast = false;
     private boolean yPressedLast = false;
     private boolean xPressedLast = false; // Manual control toggle
@@ -77,39 +79,26 @@ public class RedAllianceTeleOp extends LinearOpMode {
     private boolean dpadRightLast = false;
     private boolean aPressedLast = false;
     private boolean bPressedLast = false;
-    
-    // Drive speed toggle
-    private double driveSpeed = 1.0;
-    
-    // Inverse direction toggle (for when controller is at back of robot)
-    private boolean inverseDirection = false;
-    private boolean dpadUpLast = false;
 
-    // Spindexer positions 
-    private static final double TICKS_PER_REVOLUTION = 2150.8;
-    private static final int POS_TICK_120 = (int) (TICKS_PER_REVOLUTION / 3.0); // 717
-    private static final int POS_TICK_240 = (int) (TICKS_PER_REVOLUTION * 2.0 / 3.0); // 1434
-    
-    // Intake positions (evenly spaced)
-    private static final int[] INTAKE_POSITIONS = { 0, POS_TICK_120, POS_TICK_240 };
-    
-    // Outtake positions (measured values normalized)
-    private static int normalizePosition(int rawPosition) {
-        int normalized = rawPosition % (int) TICKS_PER_REVOLUTION;
-        if (normalized < 0) normalized += (int) TICKS_PER_REVOLUTION;
-        return normalized;
-    }
-    
-    // Outtake positions are now managed by OldSpindexerSubsystem
-    // Use spindexer.getOuttakePositionTicks(index) or spindexer.goToPositionForCurrentMode(index)
-    
+    // === DRIVE INPUT CONSTANTS ===
+    private static final double STICK_DEADBAND = 0.05;     // Prevent drift from stick noise
+    private static final double CUBIC_INPUT_POWER = 3.0;   // Smooth low-speed control
+
+    // === SPINDEXER STATE TRACKING ===
+    private long spindexerReadyTime = 0;                    // Debounce timer for mode transitions
+    private static final long SPINDEXER_DEBOUNCE_MS = 100;  // 100ms debounce
+
+    // === FUNNEL STATE MACHINE ===
+    private long funnelTimer = 0;
+    private static final long FUNNEL_EXTEND_TIME_MS = 400;  // Time to fully extend/retract
+    private static final long FUNNEL_HOLD_TIME_MS = 300;    // Hold time before retracting
+
     // === AUTO-ALIGNMENT CONSTANTS ===
     private static final double DESIRED_SHOOTING_DISTANCE = 134;
     private static final double DESIRED_SHOOTING_Angle = 21;
     private static final double KP_STRAFE = 0.03;
     private static final double KP_FORWARD = 0.03;
     private static final double KP_ROT = 0.015;
-
     private static final double MAX_AUTO_POWER = 0.40;
     private static final double POSITION_DEADBAND = 0.75;
     private static final double ANGLE_DEADBAND_DEG = 1.5;
@@ -121,6 +110,19 @@ public class RedAllianceTeleOp extends LinearOpMode {
     private static final boolean IS_BLUE_ALLIANCE = false;
     private static final int TARGET_TAG_ID = 24; // Red alliance goal tag
 
+    // === INTAKE POWER CONFIG (Keeper Wheel Pattern) ===
+    private static final double INTAKE_HOLD_POWER = 0.5;      // Always-on background power
+    private static final double INTAKE_FULL_POWER = 1.0;       // Full intake (trigger pressed)
+    private static final double INTAKE_REVERSE_POWER = -1.0;   // Reverse (bumper pressed)
+
+    // === MANUAL SPINDEXER TUNING ===
+    private static final double SPINDEXER_MANUAL_SCALE = 0.6;   // Overall power limit
+    private static final double SPINDEXER_CUBIC_POWER = 3.0;    // Higher = less sensitive near center
+
+    // === OBELISK MOTIF TRACKING ===
+    private ArtifactColor[] lockedMotif = null; // Locked at start, holds motif for entire match
+    private int lockedMotifTagId = -1; // Locked obelisk tag ID
+
     @Override
     public void runOpMode() {
         // Initialize subsystems
@@ -128,33 +130,114 @@ public class RedAllianceTeleOp extends LinearOpMode {
         intake = new IntakeSubsystem(hardwareMap, telemetry);
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
         spindexer = new OldSpindexerSubsystem(hardwareMap, telemetry);
+        funnel = new FunnelSubsystem(hardwareMap, telemetry);
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
-//        funnel = new FunnelSubsystem(hardwareMap, telemetry);
-        
-        // Initialize Timers
-        shotTimer = new ElapsedTime();
-        actionTimer = new ElapsedTime();
+
+        // Initialize camera controls ONCE before the loop to prevent lag
+        aprilTag.initializeCameraControls();
+
+        // Initialize AimController with competition settings
+        aimController = new AimController(aprilTag, drive, telemetry);
+        aimController.setDesiredDistance(DESIRED_SHOOTING_DISTANCE);
+        aimController.setDesiredAngle(DESIRED_SHOOTING_Angle);
+        aimController.setGains(KP_STRAFE, KP_FORWARD, KP_ROT);
+        aimController.setMaxPower(MAX_AUTO_POWER);
+        aimController.setDeadbands(POSITION_DEADBAND, ANGLE_DEADBAND_DEG, 2.0);
+        aimController.setTargetTagId(TARGET_TAG_ID);
+        aimController.setVisionLossTimeout(500);
+        aimController.setVisionSmoothing(0.3);
+
+        // Initialize Obelisk Motif Detector
+        ObeliskMotifDetector obeliskDetector = new ObeliskMotifDetector(aprilTag, telemetry);
 
         telemetry.addData("Status", "Initialized - Red Alliance");
         telemetry.addData("Target Goal", "Red Alliance (Tag 24)");
+        telemetry.addData("Obelisk", "Detecting...");
         telemetry.update();
 
-        waitForStart();
+        // === STAGE 1: CONTINUOUS DETECTION DURING INIT ===
+        // Continuously detect obelisk motif while waiting for start
+        // Driver can see the detected motif on dashboard before starting
+        while (!isStarted() && !isStopRequested()) {
+            obeliskDetector.update(); // Continuously update motif for driver dashboard
+            ArtifactColor[] currentMotif = obeliskDetector.getMotif();
+            if (currentMotif != null) {
+                telemetry.addData("Obelisk", "Detected: " + motifToString(currentMotif) + " (Tag " + obeliskDetector.getMotifTagId() + ")");
+            } else {
+                telemetry.addData("Obelisk", "Not detected - waiting...");
+            }
+            telemetry.update();
+            sleep(50); // Small delay to avoid CPU overload
+        }
+
+        // === STAGE 2: LOCK MOTIF AT START ===
+        // Lock the motif that was detected at start - it won't change during the match
+        lockedMotif = obeliskDetector.getMotif();
+        lockedMotifTagId = obeliskDetector.getMotifTagId();
+
+        telemetry.addData("Status", "Match Started - Red Alliance");
+        if (lockedMotif != null) {
+            telemetry.addData("Motif Locked", motifToString(lockedMotif) + " (Tag " + lockedMotifTagId + ")");
+        } else {
+            telemetry.addData("Motif Locked", "NONE - No obelisk detected at start");
+        }
+        telemetry.update();
 
         while (opModeIsActive()) {
-            // ==================== GAMEPAD 1: DRIVING ====================
-            handleDriving();
-
-            // ==================== GAMEPAD 2: OPERATOR CONTROLS ====================
-            handleIntake();
-            handleShooter();
             shooter.updateVoltageCompensation();
-            handleSpindexer();
-            enforceShooterSpindexerSafety();
-//            handleFunnel();
-            handleAprilTagAlignment();
 
-            // ==================== TELEMETRY ====================
+            // 1. MANUAL OVERRIDE TOGGLE
+            boolean x = gamepad2.x;
+            if (x && !xPressedLast) {
+                if (currentMode == RobotMode.MANUAL_OVERRIDE) {
+                    currentMode = RobotMode.INTAKE;
+                } else {
+                    currentMode = RobotMode.MANUAL_OVERRIDE;
+                    spindexer.lockCurrentPosition();
+                }
+            }
+            xPressedLast = x;
+
+            // 1.5 INTAKE/OUTTAKE MODE TOGGLE (D-Pad Left)
+            boolean dpadLeft = gamepad2.dpad_left;
+            if (dpadLeft && !dpadLeftLast && currentMode != RobotMode.MANUAL_OVERRIDE) {
+                boolean wasIntakeMode = intakeMode;
+                intakeMode = !intakeMode;
+                spindexer.setIntakeMode(intakeMode);
+                spindexerPositionIndex = 0; // Reset position when mode changes
+
+                // If switching from intake to outtake, use forward-only movement
+                if (wasIntakeMode && !intakeMode) {
+                    spindexer.goToPositionForwardOnly(OldSpindexerSubsystem.OUTTAKE_POSITIONS[0]);
+                    currentMode = RobotMode.SHOOTING_SETUP;
+                } else {
+                    // Otherwise use normal shortest path
+                    spindexer.goToPositionForCurrentMode(0);
+                    if (intakeMode) {
+                        currentMode = RobotMode.INTAKE;
+                    }
+                }
+            }
+            dpadLeftLast = dpadLeft;
+
+            // 2. STATE MACHINE TRANSITIONS
+            if (currentMode != RobotMode.MANUAL_OVERRIDE) {
+                handleCircularTransitions();
+            }
+
+            // 3. DRIVE & AUTO-ALIGNMENT
+            handleDriveAndAlignment();
+
+            // 3.5 INTAKE CONTROL (Keeper Wheel Pattern)
+            handleIntake();
+
+            // 4. HARDWARE COMMANDS
+            executeHardwareActions();
+
+            // ✅ ALWAYS RUN PID: Keeps "Active Hold" working to resist external force
+            spindexer.update();
+
+            // 5. TELEMETRY
             updateTelemetry();
         }
 
@@ -162,254 +245,296 @@ public class RedAllianceTeleOp extends LinearOpMode {
         drive.stop();
         intake.stop();
         shooter.stop();
-//        funnel.retract(); // Retract funnels on stop
+        funnel.retract(); // Retract funnels on stop
         aprilTag.closeVision();
     }
 
-    private void handleDriving() {
+    private void handleCircularTransitions() {
+        // ✅ COLLISION PREVENTION: Only allow spindexer movement when funnel is fully retracted
+        if (funnelState != FunnelState.RETRACTED) {
+            return; // Block all spindexer transitions while funnel is moving
+        }
+
+        // Press B: Start Shooting Sequence (Ball 1) - Switch to outtake mode
+        boolean b = gamepad2.b;
+        if (b && !bPressedLast && currentMode == RobotMode.INTAKE) {
+            intakeMode = false;
+            spindexerPositionIndex = 0;
+            spindexer.setIntakeMode(false);
+            // ✅ FORWARD-ONLY: Guarantee clockwise movement from intake to outtake
+            spindexer.goToPositionForwardOnly(OldSpindexerSubsystem.OUTTAKE_POSITIONS[0]);
+            currentMode = RobotMode.SHOOTING_SETUP;
+        }
+        bPressedLast = b;
+
+        // Press A: Move to next Ball (1 -> 2 -> 3 -> Intake)
+        boolean a = gamepad2.a;
+        if (a && !aPressedLast) {
+            spindexerPositionIndex++;
+            if (spindexerPositionIndex > 2) {
+                // Return to Intake configuration
+                intakeMode = true;
+                spindexerPositionIndex = 0;
+                spindexer.setIntakeMode(true);
+                spindexer.goToPositionForCurrentMode(0);
+                currentMode = RobotMode.INTAKE;
+            } else {
+                spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
+                currentMode = RobotMode.SHOOTING_SETUP;
+            }
+        }
+        aPressedLast = a;
+
+        // Reset to Intake via D-Pad Down
+        boolean dpadDown = gamepad2.dpad_down;
+        if (dpadDown && !dpadDownLast) {
+            intakeMode = true;
+            spindexerPositionIndex = 0;
+            spindexer.setIntakeMode(true);
+            spindexer.goToPositionForCurrentMode(0);
+            currentMode = RobotMode.INTAKE;
+        }
+        dpadDownLast = dpadDown;
+
+        // Auto-Ready Transition (with debounce to prevent flickering)
+        if (currentMode == RobotMode.SHOOTING_SETUP && spindexer.isAtPosition()) {
+            if (spindexerReadyTime == 0) {
+                spindexerReadyTime = System.currentTimeMillis();
+            } else if (System.currentTimeMillis() - spindexerReadyTime >= SPINDEXER_DEBOUNCE_MS) {
+                currentMode = RobotMode.SHOOTING_READY;
+                spindexerReadyTime = 0; // Reset debounce
+            }
+        } else {
+            spindexerReadyTime = 0; // Reset if position check fails
+        }
+    }
+
+    private void handleDriveAndAlignment() {
+        // --- UNIFIED ALIGNMENT: Vision + IMU Fusion with Fallback ---
+        // Hold Y to activate auto-alignment using AimController
+        boolean y = gamepad2.y;
+        if (y) {
+            AimController.AlignmentResult result = aimController.update();
+            drive.drive(result.strafe, result.forward, result.turn);
+            return;
+        }
+        yPressedLast = y;
+
+        // --- MANUAL DRIVER CONTROLS ---
         // Inverse direction toggle (D-Pad Up on Gamepad 1)
         boolean dpadUp = gamepad1.dpad_up;
         if (dpadUp && !dpadUpLast) {
             inverseDirection = !inverseDirection;
         }
         dpadUpLast = dpadUp;
-        
+
+        // Drive speed toggle
+        if (gamepad1.a && !aPressedLast) driveSpeed = 1.0;
+        if (gamepad1.b && !bPressedLast) driveSpeed = 0.5;
+        aPressedLast = gamepad1.a;
+        bPressedLast = gamepad1.b;
+
         // Get standard controls from left stick
         float forward = gamepad1.left_stick_y;
         float strafe = -gamepad1.left_stick_x;
         float turn = -gamepad1.right_stick_x;
-        
+
         // Add diagonal forward/backward movement from right stick Y axis
-        // Right stick Y = diagonal forward/backward (adds to base forward movement)
         float diagonalForward = gamepad1.right_stick_y;
-        
-        // Combine normal movement with diagonal forward/backward
         forward += diagonalForward;
-        
+
         // Apply inverse direction if enabled
         if (inverseDirection) {
             forward = -forward;
             strafe = -strafe;
             turn = -turn;
         }
-        
-        double denominator = JavaUtil.maxOfList(JavaUtil.createListWith(0.5, 0.5 + Math.abs(turn)));
 
-        if (gamepad1.a && !aPressedLast) driveSpeed = 1.0;
-        if (gamepad1.b && !bPressedLast) driveSpeed = 0.5;
-        aPressedLast = gamepad1.a;
-        bPressedLast = gamepad1.b;
+        // Apply deadband to prevent stick drift
+        forward = applyDeadband(forward, STICK_DEADBAND);
+        strafe = applyDeadband(strafe, STICK_DEADBAND);
+        turn = applyDeadband(turn, STICK_DEADBAND);
 
-        // Store drive values for use in alignment (if not aligning)
-        // Alignment will override turn when Y button is held
-        if (!gamepad2.y) {
-            // Normal driving - apply drive with speed multiplier
-            // Diagonal movement is automatically handled by mecanum kinematics
-            drive.drive((forward / denominator) * driveSpeed, 
-                       (strafe / denominator) * driveSpeed, 
-                       (turn / denominator) * driveSpeed);
-        } else {
-            // When aligning, only allow forward/strafe, turn is controlled by alignment
-            drive.drive((forward / denominator) * driveSpeed, 
-                       (strafe / denominator) * driveSpeed, 
-                       0); // Turn will be set by alignment
-        }
+        // Apply cubic scaling for smoother low-speed control
+        forward = (float) Math.copySign(Math.pow(Math.abs(forward), CUBIC_INPUT_POWER), forward);
+        strafe = (float) Math.copySign(Math.pow(Math.abs(strafe), CUBIC_INPUT_POWER), strafe);
+        turn = (float) Math.copySign(Math.pow(Math.abs(turn), CUBIC_INPUT_POWER), turn);
+
+        // Normalize powers to prevent exceeding 1.0
+        double max = Math.max(1.0, Math.abs(forward) + Math.abs(strafe) + Math.abs(turn));
+        forward /= max;
+        strafe /= max;
+        turn /= max;
+
+        drive.drive(forward * driveSpeed, strafe * driveSpeed, turn * driveSpeed);
     }
 
-    private void handleIntake() {
-        if (gamepad2.left_trigger > 0.1) {
-            intake.setPower(1.0); // Forward intake
-        } else if (gamepad2.left_bumper) {
-            intake.setPower(-1.0); // Reverse/outtake
-        } else {
-            intake.setPower(0);
+    /**
+     * Apply deadband to joystick input to prevent drift from stick noise.
+     * If input is below deadband threshold, return 0. Otherwise, scale linearly.
+     */
+    private float applyDeadband(double value, double deadband) {
+        if (Math.abs(value) < deadband) {
+            return 0.0f;
         }
+        // Scale from [deadband, 1.0] -> [0, 1.0]
+        double scaled = (Math.abs(value) - deadband) / (1.0 - deadband);
+        return (float) Math.copySign(scaled, value);
     }
 
-    private void handleShooter() {
+    private void executeHardwareActions() {
+        // Shooter logic: Spin up during setup/ready or manual override (but NOT in intake mode)
         boolean rb = gamepad2.right_bumper;
-        if (rb && !rbPressedLast) {
-            shooterManuallyControlled = true;
-            shooterNeedsToSpinUp = false;
-            if (shooter.getTargetRPM() > 0) {
-                shooter.stop();
-                shooterManuallyControlled = false;
-            } else {
-                shooter.setTargetRPM(SHOOTER_TARGET_RPM);
-            }
+        if ((currentMode == RobotMode.SHOOTING_READY || currentMode == RobotMode.SHOOTING_SETUP || rb) 
+                && !intakeMode) {
+            shooter.setTargetRPM(SHOOTER_TARGET_RPM);
+        } else {
+            shooter.stop();
         }
         rbPressedLast = rb;
-    }
 
-    private void handleSpindexer() {
-        // Manual/Automated control toggle (X Button)
-        boolean x = gamepad2.x;
-        if (x && !xPressedLast) {
-            manualControlMode = !manualControlMode;
-            if (manualControlMode) {
-                // Switch to manual mode - stop automated movement and disable PID
-                spindexerIsMoving = false;
-                ballSettling = false;
-                spindexer.setPIDEnabled(false);
-                spindexer.setManualPower(0); // Stop any current movement
-            } else {
-                // Switch back to automated mode - re-enable PID
-                spindexer.setPIDEnabled(true);
-            }
-        }
-        xPressedLast = x;
-
-        // Mode toggle (D-Pad Down) - only in automated mode
-        boolean dpadDown = gamepad2.dpad_down;
-        if (dpadDown && !dpadDownLast && !manualControlMode) {
-            boolean wasIntakeMode = intakeMode;
-            intakeMode = !intakeMode;
-            spindexerPositionIndex = 0; // Reset position when mode changes
-            spindexer.setIntakeMode(intakeMode); // Update subsystem mode for position selection
-            
-            // If switching from intake to outtake, use backward movement
-            if (wasIntakeMode && !intakeMode) {
-                int targetTicks = intakeMode ? 
-                    OldSpindexerSubsystem.INTAKE_POSITIONS[0] : 
-                    OldSpindexerSubsystem.OUTTAKE_POSITIONS[0];
-                spindexer.goToPositionBackwardOnly(targetTicks);
-                spindexerIsMoving = true;
-            } else {
-                // Otherwise use normal shortest path
-                spindexer.goToPosition(spindexerPositionIndex);
-                spindexerIsMoving = true;
-            }
-        }
-        dpadDownLast = dpadDown;
-
-        // Manual control mode
-        if (manualControlMode) {
-            handleManualSpindexer();
-            return; // Skip automated logic
-        }
-
-        // Automated control mode
-        handleAutomatedSpindexer();
-    }
-
-    private void handleManualSpindexer() {
-        float manualPower = -gamepad2.right_stick_y;
-        if (Math.abs(manualPower) > 0.1) {
-            spindexer.setManualPower(manualPower * OldSpindexerSubsystem.getRecommendedManualPowerMultiplier());
-            spindexerIsMoving = false;
-        } else {
-            spindexer.setManualPower(0);
-        }
-
-        if (gamepad2.dpad_left && !dpadLeftLast && !spindexerIsMoving) {
-            spindexerPositionIndex = (spindexerPositionIndex - 1 + 3) % 3;
-            spindexer.setPIDEnabled(true); // Re-enable PID for position control
-            spindexer.goToPosition(spindexerPositionIndex);
-            spindexerIsMoving = true;
-        }
-        if (gamepad2.dpad_right && !dpadRightLast && !spindexerIsMoving) {
-            spindexerPositionIndex = (spindexerPositionIndex + 1) % 3;
-            spindexer.setPIDEnabled(true); // Re-enable PID for position control
-            spindexer.goToPosition(spindexerPositionIndex);
-            spindexerIsMoving = true;
-        }
-        dpadLeftLast = gamepad2.dpad_left;
-        dpadRightLast = gamepad2.dpad_right;
-
-        if (spindexerIsMoving) {
-            spindexer.update();
-            if (spindexer.isAtPosition()) spindexerIsMoving = false;
-        }
-    }
-
-    private void handleAutomatedSpindexer() {
-        spindexer.update();
-
-        if (spindexerIsMoving && spindexer.isAtPosition()) {
-            spindexerIsMoving = false;
-            if (!intakeMode && !shooterManuallyControlled) {
-                shooter.setTargetRPM(SHOOTER_TARGET_RPM);
-                shooterNeedsToSpinUp = true;
-                actionTimer.reset();
-                shotTimer.reset();
-            }
-        }
-
-        if (shooterNeedsToSpinUp && !shooterManuallyControlled) {
-            if (shooter.isAtTargetRPM()) {
-                long stabilityDelay = (shotNumber == 0) ? 300 : 200;
-                if (actionTimer.milliseconds() > stabilityDelay) {
-                    shooterNeedsToSpinUp = false;
+        // === FUNNEL STATE MACHINE ===
+        // Ensures funnel fully extends/retracts before spindexer can move (collision prevention)
+        switch (funnelState) {
+            case RETRACTED:
+                // Trigger pressed and we're in shooting mode? Start extending
+                // ✅ CRITICAL: Only extend if spindexer is at position (prevents collision)
+                if (gamepad2.right_trigger > 0.5 
+                        && (currentMode == RobotMode.SHOOTING_READY || currentMode == RobotMode.MANUAL_OVERRIDE)
+                        && spindexer.isAtPosition()) {
+                    funnel.extend();
+                    funnelState = FunnelState.EXTENDING;
+                    funnelTimer = System.currentTimeMillis();
                 }
+                break;
+
+            case EXTENDING:
+                // Wait for funnel to fully extend
+                if (System.currentTimeMillis() - funnelTimer >= FUNNEL_EXTEND_TIME_MS) {
+                    funnelState = FunnelState.EXTENDED;
+                    funnelTimer = System.currentTimeMillis();
+                }
+                break;
+
+            case EXTENDED:
+                // Hold extended state for a moment before retracting
+                if (System.currentTimeMillis() - funnelTimer >= FUNNEL_HOLD_TIME_MS) {
+                    funnelState = FunnelState.RETRACTING;
+                    funnel.retract();
+                    funnelTimer = System.currentTimeMillis();
+                }
+                break;
+
+            case RETRACTING:
+                // Wait for funnel to fully retract
+                if (System.currentTimeMillis() - funnelTimer >= FUNNEL_EXTEND_TIME_MS) {
+                    funnelState = FunnelState.RETRACTED;
+                }
+                break;
+        }
+
+        // Manual Spindexer (Gamepad 2 Right Stick) - Cubic Scaling for Smooth Control
+        if (currentMode == RobotMode.MANUAL_OVERRIDE) {
+            double raw = -gamepad2.right_stick_y;
+
+            // Deadband
+            if (Math.abs(raw) < STICK_DEADBAND) {
+                spindexer.stopManual();
             } else {
-                actionTimer.reset();
+                // Remove deadband and normalize to [0, 1]
+                double normalized = (Math.abs(raw) - STICK_DEADBAND) / (1.0 - STICK_DEADBAND);
+                normalized = Math.copySign(normalized, raw);
+
+                // Cubic scaling (smooth near center, full power at extremes)
+                double scaled = Math.copySign(Math.pow(Math.abs(normalized), SPINDEXER_CUBIC_POWER), normalized);
+
+                // Final power with safety scale
+                spindexer.setManualPower(scaled * SPINDEXER_MANUAL_SCALE);
             }
-        }
 
-        boolean spPress = gamepad2.a;
-        long minDelayBetweenShots = (!intakeMode && spindexerPositionIndex == 0) ? 400 : 250;
-        
-        boolean canMove = !spindexerIsMoving &&
-                (!shooterNeedsToSpinUp || shooter.isAtTargetRPM() || shooterManuallyControlled) &&
-                (shotTimer.milliseconds() > minDelayBetweenShots || intakeMode);
-
-        if (spPress && !spindexerPressLast && canMove) {
-            if (!intakeMode) shotNumber = spindexerPositionIndex;
-            spindexerPositionIndex = (spindexerPositionIndex + 1) % 3;
-            spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
-            spindexerIsMoving = true;
-            actionTimer.reset();
-            shotTimer.reset();
-        }
-        spindexerPressLast = spPress;
-    }
-
-//    private void handleFunnel() {
-//        // Funnel toggle (B Button on Gamepad 2)
-//        boolean b = gamepad2.b;
-//        if (b && !b2PressedLast) {
-//            funnel.toggle();
-//        }
-//        bPressedLast = b;
-//    }
-
-    private void enforceShooterSpindexerSafety() {
-        if (spindexer.isMoving() || !spindexer.isAtPosition()) {
-            if (shooter.getTargetRPM() > 0 && !shooterManuallyControlled) {
-                shooter.stop();
-                shooterNeedsToSpinUp = true;
+            // D-Pad Right: Manual position increment
+            boolean dpadRight = gamepad2.dpad_right;
+            if (dpadRight && !dpadRightLast && spindexer.isAtPosition()) {
+                spindexerPositionIndex = (spindexerPositionIndex + 1) % 3;
+                spindexer.setPIDEnabled(true);
+                spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
             }
+            dpadRightLast = dpadRight;
         }
     }
 
-    private void handleAprilTagAlignment() {
-        if (gamepad2.y) {
-            aprilTag.updateRobotPositionFromAllianceGoals();
-            AprilTagDetection tag = aprilTag.getBestAllianceGoalDetection();
-
-            if (tag == null || tag.id != TARGET_TAG_ID) {
-                drive.drive(0, 0, 0);
-                return;
-            }
-
-            if (!shooterManuallyControlled) shooter.setTargetRPM(SHOOTER_TARGET_RPM);
-
-            double[] corrections = aprilTag.calculateAlignmentCorrections(
-                    tag, DESIRED_SHOOTING_DISTANCE, DESIRED_SHOOTING_Angle,
-                    POSITION_DEADBAND, POSITION_DEADBAND, ANGLE_DEADBAND_DEG,
-                    KP_STRAFE, KP_FORWARD, KP_ROT, MAX_AUTO_POWER);
-
-            if (corrections != null) {
-                drive.drive(corrections[1], corrections[0], corrections[2]);
-            }
+    /**
+     * KEEPER WHEEL PATTERN: Intake always runs at low hold power, overridable by driver.
+     * Priority: Reverse > Full Intake > Hold Power
+     */
+    private void handleIntake() {
+        // Safety: block intake while funnel is not retracted
+        if (funnelState != FunnelState.RETRACTED) {
+            intake.setPower(0);
+            return;
         }
+
+        // Priority 1: Reverse (clears jams, overrides everything)
+        if (gamepad2.left_bumper) {
+            intake.setPower(INTAKE_REVERSE_POWER);
+            return;
+        }
+
+        // Priority 2: Full intake when trigger pressed AND in intake mode
+        if (gamepad2.left_trigger > 0.1 && intakeMode) {
+            intake.setPower(INTAKE_FULL_POWER);
+            return;
+        }
+
+        // Priority 3: Default background holding power (keeps balls seated)
+        intake.setPower(INTAKE_HOLD_POWER);
     }
 
     private void updateTelemetry() {
-        telemetry.addData("Spindexer", manualControlMode ? "MANUAL" : "AUTO");
-        telemetry.addData("Mode", intakeMode ? "INTAKE" : "OUTTAKE");
-        telemetry.addData("RPM", "%.0f / %.0f", shooter.getCurrentRPM(), shooter.getTargetRPM());
+        telemetry.addLine("=== GAMEPAD 2 CONTROLS ===");
+        telemetry.addLine("B = Start Shooting | A = Next Ball");
+        telemetry.addLine("Y = Auto-Align | X = Manual Override");
+        telemetry.addLine("D↓ = Reset | D← = Toggle Mode | RB = Spin");
+        telemetry.addLine("RT = Shoot | LT = Intake | LB = Reverse");
+        telemetry.addLine();
+        
+        telemetry.addData("PHASE", currentMode);
+        telemetry.addData("TARGET SLOT", spindexerPositionIndex + 1);
+        telemetry.addData("SPINDEXER MODE", intakeMode ? "INTAKE" : "OUTTAKE");
+        telemetry.addData("FUNNEL STATE", funnelState);
+        
+        AprilTagDetection bestTag = aprilTag.getBestAllianceGoalDetection();
+        telemetry.addData("TAG ID", bestTag != null ? bestTag.id : "NONE");
+        telemetry.addData("TAG RANGE", bestTag != null ? String.format("%.2f in", bestTag.ftcPose.range) : "N/A");
+        
+        telemetry.addData("SHOOTER RPM", "%.0f / %.0f", shooter.getCurrentRPM(), shooter.getTargetRPM());
+        
+        if (gamepad2.y) {
+            telemetry.addData("ALIGNMENT", "ACTIVE");
+        } else {
+            telemetry.addData("ALIGNMENT", "OFF");
+        }
+        
+        // Motif detection telemetry (locked at start)
+        if (lockedMotif != null) {
+            telemetry.addData("MOTIF", motifToString(lockedMotif) + " (Locked)");
+            telemetry.addData("OBELISK TAG", "ID " + lockedMotifTagId);
+        } else {
+            telemetry.addData("MOTIF", "NOT DETECTED");
+        }
+        
         telemetry.update();
     }
-}
 
+    /**
+     * Helper method to convert ArtifactColor[] motif to string representation
+     */
+    private String motifToString(ArtifactColor[] motif) {
+        if (motif == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (ArtifactColor c : motif) {
+            sb.append(c.getCharacter());
+        }
+        return sb.toString();
+    }
+}
