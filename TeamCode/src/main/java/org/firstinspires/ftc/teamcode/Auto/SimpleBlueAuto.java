@@ -26,11 +26,17 @@ public class SimpleBlueAuto extends OpMode {
 
     private ElapsedTime stateTimer = new ElapsedTime();
 
-    private static final double SHOOTER_RPM = 5225;
+    // Uses centralized value from ShooterSubsystem.TARGET_RPM
     private int shotIndex = 0;
 
     // === INTAKE CONFIG (AUTO HOLD) ===
     private static final double INTAKE_HOLD_POWER = 0.57;
+    
+    // === Return to Zero Config ===
+    private double initialHeading = 0.0; // Store original heading at start
+    private boolean returnToZeroEnabled = true; // Toggle for Blue/Red
+    private double returnToZeroTime = 5.0; // Last N seconds to return to zero
+    private static final double AUTONOMOUS_DURATION = 30.0; // FTC autonomous period
 
     // --- Funnel state machine ---
     private enum FunnelState { RETRACTED, EXTENDING, EXTENDED, RETRACTING, WAITING_FOR_SPINDEXER }
@@ -41,7 +47,7 @@ public class SimpleBlueAuto extends OpMode {
     private static final long FUNNEL_CLEAR_BUFFER_MS = 150; // Extra buffer before spindexer moves
 
     // --- Auto states ---
-    private enum State { ALIGN, SPIN_UP, FIRE, DONE }
+    private enum State { ALIGN, SPIN_UP, FIRE, RETURN_TO_ZERO, DONE }
     private State state = State.ALIGN;
 
     @Override
@@ -75,6 +81,7 @@ public class SimpleBlueAuto extends OpMode {
         spindexer.setIntakeMode(false);
         funnel.retract();
         funnelState = FunnelState.RETRACTED;
+        initialHeading = Math.toDegrees(drive.getHeading()); // Store original heading in DEGREES for return-to-zero
 
         // ✅ Start intake hold immediately
         intake.setPower(INTAKE_HOLD_POWER);
@@ -88,6 +95,15 @@ public class SimpleBlueAuto extends OpMode {
 
         spindexer.update();
         shooter.updateVoltageCompensation();
+
+        // === Auto-trigger return-to-zero in last N seconds ===
+        double elapsed = stateTimer.seconds();
+        double remaining = AUTONOMOUS_DURATION - elapsed;
+        
+        if (returnToZeroEnabled && remaining <= returnToZeroTime 
+                && state != State.DONE && state != State.RETURN_TO_ZERO) {
+            state = State.RETURN_TO_ZERO;
+        }
 
         switch (state) {
 
@@ -103,10 +119,10 @@ public class SimpleBlueAuto extends OpMode {
                 break;
 
             case SPIN_UP:
-                shooter.setTargetRPM(SHOOTER_RPM);
+                shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM);
 
                 if (shooter.isAtTargetRPM()
-                        || Math.abs(shooter.getCurrentRPM() - SHOOTER_RPM) < 100) {
+                        || Math.abs(shooter.getCurrentRPM() - ShooterSubsystem.TARGET_RPM) < 100) {
                     state = State.FIRE;
                     shotIndex = 0;
                     stateTimer.reset();
@@ -121,7 +137,7 @@ public class SimpleBlueAuto extends OpMode {
 
                     if (spindexer.isAtPosition()
                             && (shooter.isAtTargetRPM()
-                            || Math.abs(shooter.getCurrentRPM() - SHOOTER_RPM) < 100)) {
+                            || Math.abs(shooter.getCurrentRPM() - ShooterSubsystem.TARGET_RPM) < 100)) {
 
                         switch (funnelState) {
 
@@ -164,6 +180,23 @@ public class SimpleBlueAuto extends OpMode {
                     }
 
                 } else {
+                    if (returnToZeroEnabled && remaining > returnToZeroTime) {
+                        state = State.RETURN_TO_ZERO;
+                    } else {
+                        state = State.DONE;
+                    }
+                }
+                break;
+
+            case RETURN_TO_ZERO:
+                double headingError = drive.getHeadingError(initialHeading); // initialHeading is already in degrees
+                
+                // Simple proportional turn to original heading
+                if (Math.abs(headingError) > 2.0) { // 2° tolerance
+                    double turnPower = Math.min(Math.abs(headingError) * 0.008, 0.3); // Smoother P factor
+                    drive.drive(0, 0, headingError > 0 ? turnPower : -turnPower);
+                } else {
+                    drive.stop();
                     state = State.DONE;
                 }
                 break;

@@ -8,6 +8,7 @@ import com.qualcomm.robotcore.util.Range;
 import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.teamcode.SubSystems.Control.HeadingPID;
 
 /**
  * Drive subsystem for mecanum wheel drivebase.
@@ -39,7 +40,9 @@ public class DriveSubsystem {
 
     // Heading hold state
     private double headingHoldTarget = 0.0;
-    private final HeadingPID headingPID = new HeadingPID(3.2, 0.0, 0.18);
+    // Uses configurable gains from HeadingPID.kP, HeadingPID.kI, HeadingPID.kD
+    // After auto-tune, update those static fields in HeadingPID class
+    private final HeadingPID headingPID = new HeadingPID();
 
     // Odometry state for drift estimation
     private int lastLF, lastRF, lastLR, lastRR;
@@ -66,6 +69,9 @@ public class DriveSubsystem {
         currentPosition = new TileCoordinate(0, 0);
         currentHeading = 0.0;
         poseHeading = 0.0;
+
+        // Initialize heading hold target to current IMU heading to avoid first-cycle snap
+        headingHoldTarget = getHeading();
     }
 
     private void configureMotors() {
@@ -161,12 +167,15 @@ public class DriveSubsystem {
         turnInput = deadband(turnInput);
 
         // === Heading Hold: Lock heading when driver isn't turning ===
-        if (Math.abs(turnInput) > 0.02) {
+        if (Math.abs(turnInput) > 0.02 || Math.abs(strafe) > 0.6) {
             headingHoldTarget = getHeading();
             headingPID.reset();
         }
 
         double turnCorrection = headingPID.update(headingHoldTarget, getHeading());
+
+        // Clamp correction to avoid sudden spins at high kP
+        turnCorrection = Range.clip(turnCorrection, -0.5, 0.5);
 
         // === ODOMETRY DRIFT CANCELLATION: Correct lateral slip ===
         double lateralDrift = estimateLateralDrift();
@@ -506,26 +515,10 @@ public class DriveSubsystem {
     public double getCurrentHeading() {
         return currentHeading;
     }
-    /**
-     * Get the robot's current Y position in inches.
-     * 
-     * @return Current Y position in inches
-     */
-    public double getPoseY() {
-        return currentPosition.getY(); // returns Y in inches
-    }
-    /**
-     * Get the robot's current X position in inches.
-     * 
-     * @return Current X position in inches
-     */
-    public double getPoseX() {
-        return currentPosition.getX();
-    }
+
 
     /**
      * Get the robot's current X position in inches.
-     * Shorthand for getPoseX().
      * 
      * @return Current X position in inches
      */
@@ -535,7 +528,6 @@ public class DriveSubsystem {
 
     /**
      * Get the robot's current Y position in inches.
-     * Shorthand for getPoseY().
      * 
      * @return Current Y position in inches
      */
@@ -543,63 +535,4 @@ public class DriveSubsystem {
         return currentPosition.getY();
     }
 
-    // =================== HEADING PID CONTROLLER ===================
-
-    /**
-     * Lightweight PID controller for heading hold.
-     * Tuned for competitive FTC mecanum drive with fast response and minimal overshoot.
-     */
-    private static class HeadingPID {
-        private final double kP, kI, kD;
-        private double integral = 0.0;
-        private double lastError = 0.0;
-
-        public HeadingPID(double kP, double kI, double kD) {
-            this.kP = kP;
-            this.kI = kI;
-            this.kD = kD;
-        }
-
-        /**
-         * Calculate PID correction for heading error.
-         * 
-         * @param target Target heading in radians
-         * @param current Current heading in radians
-         * @return Turn power correction (-1.0 to 1.0)
-         */
-        public double update(double target, double current) {
-            // Calculate error with angle wrapping
-            double error = angleWrap(target - current);
-
-            integral += error;
-            integral = Range.clip(integral, -0.3, 0.3); // anti-windup
-
-            double derivative = error - lastError;
-            lastError = error;
-
-            double output = kP * error + kI * integral + kD * derivative;
-            return Range.clip(output, -1.0, 1.0);
-        }
-
-        /**
-         * Reset integral accumulator.
-         * Call when driver takes manual control.
-         */
-        public void reset() {
-            integral = 0.0;
-            lastError = 0.0;
-        }
-
-        /**
-         * Normalize angle to [-π, π] range.
-         * 
-         * @param angle Angle in radians
-         * @return Normalized angle
-         */
-        private double angleWrap(double angle) {
-            while (angle > Math.PI) angle -= 2 * Math.PI;
-            while (angle < -Math.PI) angle += 2 * Math.PI;
-            return angle;
-        }
-    }
 }

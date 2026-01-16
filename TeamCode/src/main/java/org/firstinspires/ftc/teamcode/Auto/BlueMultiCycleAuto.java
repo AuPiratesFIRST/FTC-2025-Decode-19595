@@ -30,10 +30,16 @@ public class BlueMultiCycleAuto extends OpMode {
     ElapsedTime stateTimer = new ElapsedTime();
 
     // === Constants ===
-    static final double SHOOTER_RPM = 5225;
+    // Uses centralized value from ShooterSubsystem.TARGET_RPM
     static final double INTAKE_HOLD_POWER = 0.57;
     static final double CREEP_POWER = 0.25;
     static final double CREEP_DISTANCE_PER_BALL = 6.0; // inches
+    
+    // === Return to Zero Config ===
+    private double initialHeading = 0.0; // Store original heading at start
+    private boolean returnToZeroEnabled = true; // Toggle for Blue/Red
+    private double returnToZeroTime = 5.0; // Last N seconds to return to zero
+    private static final double AUTONOMOUS_DURATION = 30.0; // FTC autonomous period
 
     // === Funnel timing ===
     static final long FUNNEL_EXTEND_TIME_MS = 400;
@@ -52,6 +58,7 @@ public class BlueMultiCycleAuto extends OpMode {
         ALIGN_FINAL,
         SPINUP_FINAL,
         SHOOT_FINAL,
+        RETURN_TO_ZERO,
 
         DONE
     }
@@ -80,7 +87,7 @@ public class BlueMultiCycleAuto extends OpMode {
         aim.setTargetTagId(24);
 
         tileNavigator = new TileNavigator(drive, telemetry);
-        tileNavigator.setPosition(new TileCoordinate(0, drive.getPoseY())); // initial Y
+        tileNavigator.setPosition(new TileCoordinate(0, drive.getY())); // initial Y
 
         drive.resetHeading();
         spindexer.setIntakeMode(false);
@@ -91,6 +98,7 @@ public class BlueMultiCycleAuto extends OpMode {
     public void start() {
         intake.setPower(INTAKE_HOLD_POWER);
         stateTimer.reset();
+        initialHeading = Math.toDegrees(drive.getHeading()); // Store original heading in DEGREES for return-to-zero
     }
 
     @Override
@@ -100,6 +108,15 @@ public class BlueMultiCycleAuto extends OpMode {
         spindexer.update();
         shooter.updateVoltageCompensation();
         intake.setPower(INTAKE_HOLD_POWER);
+
+        // === Auto-trigger return-to-zero in last N seconds ===
+        double elapsed = stateTimer.seconds();
+        double remaining = AUTONOMOUS_DURATION - elapsed;
+        
+        if (returnToZeroEnabled && remaining <= returnToZeroTime 
+                && state != State.DONE && state != State.RETURN_TO_ZERO) {
+            state = State.RETURN_TO_ZERO;
+        }
 
         switch (state) {
 
@@ -115,7 +132,7 @@ public class BlueMultiCycleAuto extends OpMode {
                 break;
 
             case SPINUP_PRELOAD:
-                shooter.setTargetRPM(SHOOTER_RPM);
+                shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM);
                 if (shooter.isAtTargetRPM()) {
                     shotIndex = 0;
                     state = State.SHOOT_PRELOAD;
@@ -189,7 +206,7 @@ public class BlueMultiCycleAuto extends OpMode {
                 break;
 
             case SPINUP_FINAL:
-                shooter.setTargetRPM(SHOOTER_RPM);
+                shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM);
                 if (shooter.isAtTargetRPM()) {
                     shotIndex = 0;
                     state = State.SHOOT_FINAL;
@@ -198,6 +215,23 @@ public class BlueMultiCycleAuto extends OpMode {
 
             case SHOOT_FINAL:
                 if (runShooterCycle()) {
+                    if (returnToZeroEnabled && remaining > returnToZeroTime) {
+                        state = State.RETURN_TO_ZERO;
+                    } else {
+                        state = State.DONE;
+                    }
+                }
+                break;
+
+            case RETURN_TO_ZERO:
+                double headingError = drive.getHeadingError(initialHeading); // initialHeading is already in degrees
+                
+                // Simple proportional turn to original heading
+                if (Math.abs(headingError) > 2.0) { // 2° tolerance
+                    double turnPower = Math.min(Math.abs(headingError) * 0.008, 0.3); // Smoother P factor
+                    drive.drive(0, 0, headingError > 0 ? turnPower : -turnPower);
+                } else {
+                    drive.stop();
                     state = State.DONE;
                 }
                 break;

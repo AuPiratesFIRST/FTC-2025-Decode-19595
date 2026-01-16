@@ -35,6 +35,10 @@ public class ShooterSubsystem {
     private static final double TICKS_PER_REV = 28.0;
 
     // ================= CONTROL =================
+    // 🔥 CONFIGURABLE TARGET RPM (Single source of truth)
+    // All OpModes should use ShooterSubsystem.TARGET_RPM instead of hardcoding values
+    public static double TARGET_RPM = 5220.0;  // Default competition RPM
+    
     private double targetRPM = 0.0;
     private double rpmTolerance = 100.0;
     private boolean usePercentageTolerance = true;

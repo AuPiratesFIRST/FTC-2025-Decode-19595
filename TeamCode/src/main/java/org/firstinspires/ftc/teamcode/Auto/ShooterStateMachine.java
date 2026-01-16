@@ -32,7 +32,7 @@ public class ShooterStateMachine {
     private int spindexerIndex = 0;
 
     // Constants (MATCH AUTO)
-    private static final double TARGET_RPM = 5225;
+    // Uses centralized value from ShooterSubsystem.TARGET_RPM
     private static final double RPM_TOLERANCE = 100;
 
     private static final long FUNNEL_EXTEND_MS = 400;
@@ -64,7 +64,7 @@ public class ShooterStateMachine {
 
             case IDLE:
                 if (shotsRemaining > 0) {
-                    shooter.setTargetRPM(TARGET_RPM);
+                    shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM);
                     spindexer.goToPositionForCurrentMode(spindexerIndex);
                     state = ShooterState.SPIN_UP;
                     stateTimer.reset();
@@ -76,7 +76,7 @@ public class ShooterStateMachine {
 
                 boolean rpmReady =
                         shooter.isAtTargetRPM() ||
-                                Math.abs(shooter.getCurrentRPM() - TARGET_RPM) < RPM_TOLERANCE;
+                                Math.abs(shooter.getCurrentRPM() - ShooterSubsystem.TARGET_RPM) < RPM_TOLERANCE;
 
                 if (spindexer.isAtPosition() && rpmReady) {
                     funnel.extend();

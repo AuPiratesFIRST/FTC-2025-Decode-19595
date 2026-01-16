@@ -1,8 +1,11 @@
 package org.firstinspires.ftc.teamcode.Auto;
 
+import com.bylazar.telemetry.PanelsTelemetry;
+import com.bylazar.telemetry.TelemetryManager;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.teamcode.SubSystems.Control.HeadingAutoTuner;
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
 
@@ -11,6 +14,7 @@ public class HeadingPIDAutoTuneTest extends LinearOpMode {
 
     private DriveSubsystem drive;
     private HeadingAutoTuner tuner;
+    private TelemetryManager telemetryM;
 
     private static final double RELAY_POWER = 0.35;
     private static final double TIMEOUT_SECONDS = 15.0;
@@ -19,14 +23,20 @@ public class HeadingPIDAutoTuneTest extends LinearOpMode {
     public void runOpMode() throws InterruptedException {
 
         drive = new DriveSubsystem(hardwareMap, telemetry);
+        telemetryM = PanelsTelemetry.INSTANCE.getTelemetry();
 
         telemetry.addLine("=== PID AUTO-TUNER READY ===");
         telemetry.addLine();
-        telemetry.addLine("⚠️ SAFETY CHECKLIST:");
-        telemetry.addLine("  ✓ Wheels free or lifted?");
-        telemetry.addLine("  ✓ Clear space around robot?");
-        telemetry.addLine("  ✓ Ready to press STOP if needed?");
+        telemetry.addLine("⚠️ CRITICAL REQUIREMENTS:");
+        telemetry.addLine("  ✅ Robot ON THE FLOOR (not lifted!)");
+        telemetry.addLine("  ✅ Wheels can touch ground & rotate");
+        telemetry.addLine("  ✅ Clear 360° space (~30° rotation)");
+        telemetry.addLine("  ✅ Hold robot to prevent drift");
         telemetry.addLine();
+        telemetry.addLine("❌ DO NOT run if wheels are lifted!");
+        telemetry.addLine("❌ IMU will not change → tuning fails");
+        telemetry.addLine();
+        telemetry.addLine("📊 panels telemetry ENABLED");
         telemetry.addLine("Press START to begin tuning...");
         telemetry.update();
 
@@ -43,36 +53,65 @@ public class HeadingPIDAutoTuneTest extends LinearOpMode {
 
         while (opModeIsActive() && !tuner.isFinished()) {
 
+            // Early detection: Robot not rotating
+            if (tuner.isStuck()) {
+                telemetry.clearAll();
+                telemetry.addLine("❌ TUNING STUCK - NO ROTATION DETECTED");
+                telemetry.addLine();
+                telemetry.addLine("Likely causes:");
+                telemetry.addLine("  🚨 Robot wheels are LIFTED");
+                telemetry.addLine("  🚨 Wheels blocked/can't rotate");
+                telemetry.addLine("  🚨 IMU heading not changing");
+                telemetry.addLine();
+                telemetry.addLine("✅ Put robot ON THE FLOOR and retry");
+                telemetry.update();
+                break;
+            }
+
             // Safety timeout
             if (getRuntime() - startTime > TIMEOUT_SECONDS) {
                 telemetry.clearAll();
-                telemetry.addLine("❌ TIMEOUT - Tuning aborted");
+                telemetry.addLine("❌ TIMEOUT - Tuning incomplete");
                 telemetry.addLine("Possible issues:");
-                telemetry.addLine("- Robot wheels blocked");
-                telemetry.addLine("- IMU not responding");
+                telemetry.addLine("- Oscillation too slow");
                 telemetry.addLine("- Relay power too low");
+                telemetry.addLine("- Try increasing RELAY_POWER");
                 telemetry.update();
                 break;
             }
 
             // Get motor turn power
-            double turn = tuner.update(drive.getHeading());
+            double currentHeading = drive.getHeading();
+            double turn = tuner.update(currentHeading);
             drive.drive(0, 0, turn);
+
+            // Calculate error for graphing
+            double errorDeg = Math.toDegrees(
+                AngleUnit.normalizeRadians(targetHeading - currentHeading)
+            );
 
             // Display telemetry
             double[] stats = tuner.getStats();
             int zeroCrossings = (int) stats[0];
             double progress = (zeroCrossings / 8.0) * 100;
 
+            // === PEDRO PATHING TELEMETRY (Live Graphs) ===
+            telemetryM.addData("Graph_TargetHeading", Math.toDegrees(targetHeading));
+            telemetryM.addData("Graph_CurrentHeading", Math.toDegrees(currentHeading));
+            telemetryM.addData("Graph_Error", errorDeg);
+            telemetryM.addData("Graph_TurnPower", turn);
+            telemetryM.addData("Graph_ZeroCrossings", zeroCrossings);
+
             telemetry.clearAll();
             telemetry.addLine("🔄 TUNING IN PROGRESS...");
             telemetry.addData("Zero Crossings", "%d / 8", zeroCrossings);
             telemetry.addData("Progress", "%.0f%%", progress);
-            telemetry.addData("Heading", "%.1f°", Math.toDegrees(drive.getHeading()));
+            telemetry.addData("Heading", "%.1f°", Math.toDegrees(currentHeading));
             telemetry.addData("Turn Power", "%.2f", turn);
             telemetry.addData("Max Error", "%.2f°", stats[1]);
             telemetry.addData("Min Error", "%.2f°", stats[2]);
-            telemetry.update();
+            
+            telemetryM.update(telemetry);
 
             sleep(25); // 40Hz update rate
         }

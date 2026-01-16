@@ -62,7 +62,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     private static final long FUNNEL_HOLD_TIME_MS = 300;    // Hold time before retracting
     
     // === SHOOTER CONFIG ===
-    private static final double SHOOTER_RPM = 5225;
+    // Uses centralized value from ShooterSubsystem.TARGET_RPM
     
     // === INTAKE POWER CONFIG (Keeper Wheel Pattern) ===
     private static final double INTAKE_HOLD_POWER = 0.5;      // Always-on background power
@@ -265,7 +265,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         // Shooter logic: Spin up during setup/ready or manual override (but NOT in intake mode)
         if ((currentMode == RobotMode.SHOOTING_READY || currentMode == RobotMode.SHOOTING_SETUP || gamepad2.right_bumper) 
                 && !intakeMode) {
-            shooter.setTargetRPM(SHOOTER_RPM);
+            shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM);
         } else {
             shooter.stop();
         }

@@ -36,6 +36,12 @@ public class BlueMultiCycleAutoFinal extends OpMode {
     static final long FUNNEL_EXTEND_TIME_MS = 400;
     static final long FUNNEL_HOLD_TIME_MS = 300;
     static final double WALL_BUMP_INCHES = 3.0;
+    
+    // === Return to Zero Config ===
+    private double initialHeading = 0.0; // Store original heading at start
+    private boolean returnToZeroEnabled = true; // Toggle for Blue/Red
+    private double returnToZeroTime = 5.0; // Last N seconds to return to zero
+    private static final double AUTONOMOUS_DURATION = 30.0; // FTC autonomous period
 
     // === Auto State ===
     private enum State {
@@ -49,6 +55,7 @@ public class BlueMultiCycleAutoFinal extends OpMode {
         RETURN_PATH,
         FINAL_ALIGN,
         FINAL_SHOOT,
+        RETURN_TO_ZERO,
         DONE
     }
 
@@ -74,7 +81,7 @@ public class BlueMultiCycleAutoFinal extends OpMode {
         aim.setTargetTagId(24);
 
         tileNavigator = new TileNavigator(drive, telemetry);
-        tileNavigator.setPosition(new TileCoordinate(0, drive.getPoseY()));
+        tileNavigator.setPosition(new TileCoordinate(0, drive.getY()));
 
         drive.resetHeading();
         spindexer.setIntakeMode(false);
@@ -85,6 +92,7 @@ public class BlueMultiCycleAutoFinal extends OpMode {
     public void start() {
         intake.setPower(INTAKE_HOLD_POWER);
         stateTimer.reset();
+        initialHeading = Math.toDegrees(drive.getHeading()); // Store original heading in DEGREES for return-to-zero
     }
 
     @Override
@@ -93,6 +101,15 @@ public class BlueMultiCycleAutoFinal extends OpMode {
         spindexer.update();
         shooter.updateVoltageCompensation();
         intake.setPower(INTAKE_HOLD_POWER);
+
+        // === Auto-trigger return-to-zero in last N seconds ===
+        double elapsed = stateTimer.seconds();
+        double remaining = AUTONOMOUS_DURATION - elapsed;
+        
+        if (returnToZeroEnabled && remaining <= returnToZeroTime 
+                && state != State.DONE && state != State.RETURN_TO_ZERO) {
+            state = State.RETURN_TO_ZERO;
+        }
 
         switch (state) {
 
@@ -188,7 +205,7 @@ public class BlueMultiCycleAutoFinal extends OpMode {
 
             /* ===== Return Path ===== */
             case RETURN_PATH:
-                TileCoordinate origin = new TileCoordinate(0, drive.getPoseY());
+                TileCoordinate origin = new TileCoordinate(0, drive.getY());
                 if (!tileNavigator.isAtTile(origin, 0.5)) {
                     tileNavigator.moveToPosition(origin, 0.5);
                 } else {
@@ -210,6 +227,24 @@ public class BlueMultiCycleAutoFinal extends OpMode {
             /* ===== Final Shoot ===== */
             case FINAL_SHOOT:
                 if (runShooterCycle()) {
+                    if (returnToZeroEnabled && remaining > returnToZeroTime) {
+                        state = State.RETURN_TO_ZERO;
+                    } else {
+                        state = State.DONE;
+                    }
+                }
+                break;
+
+            /* ===== Return to Zero Heading ===== */
+            case RETURN_TO_ZERO:
+                double headingError = drive.getHeadingError(initialHeading); // initialHeading is already in degrees
+                
+                // Simple proportional turn to original heading
+                if (Math.abs(headingError) > 2.0) { // 2° tolerance
+                    double turnPower = Math.min(Math.abs(headingError) * 0.008, 0.3); // Smoother P factor
+                    drive.drive(0, 0, headingError > 0 ? turnPower : -turnPower);
+                } else {
+                    drive.stop();
                     state = State.DONE;
                 }
                 break;

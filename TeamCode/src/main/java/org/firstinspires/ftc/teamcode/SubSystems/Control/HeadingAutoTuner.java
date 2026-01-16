@@ -6,8 +6,14 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 /**
  * Relay-based PID auto-tuner for heading control.
  * 
- * Uses bang-bang relay method to induce controlled oscillations,
- * then applies Ziegler-Nichols rules to compute optimal PID gains.
+ * ⚠️ IMPORTANT REQUIREMENTS:
+ * - Robot MUST be on the floor (or rollers)
+ * - Robot MUST be able to physically rotate
+ * - DO NOT run while robot is lifted/blocked
+ * - Requires clear space to oscillate ±20-30°
+ * 
+ * Uses relay feedback method (Ziegler-Nichols variant)
+ * to automatically determine optimal PID gains.
  */
 public class HeadingAutoTuner {
 
@@ -24,6 +30,10 @@ public class HeadingAutoTuner {
     private final ElapsedTime timer = new ElapsedTime();
     private double periodSum = 0;
     private double lastCrossTime = 0;
+    private double lastUpdateTime = 0;
+
+    private static final double ZERO_THRESHOLD = 1e-4; // small error tolerance
+    private static final double STUCK_TIMEOUT = 2.0; // seconds without zero crossing
 
     public HeadingAutoTuner(double targetAngleRad, double relayPower) {
         this.targetAngle = targetAngleRad;
@@ -32,51 +42,68 @@ public class HeadingAutoTuner {
     }
 
     /**
-     * Call repeatedly during tuning.
-     * Returns motor turn power.
+     * Call repeatedly during tuning. Returns motor turn power.
+     * 
+     * @param currentAngleRad Current robot heading in radians
+     * @return Turn power to apply (relay output: ±relayPower)
      */
     public double update(double currentAngleRad) {
         double error = AngleUnit.normalizeRadians(targetAngle - currentAngleRad);
+        double now = timer.seconds();
 
         maxError = Math.max(maxError, error);
         minError = Math.min(minError, error);
 
-        // Detect zero crossing
-        if (Math.signum(error) != Math.signum(lastError) && lastError != 0) {
+        // Detect zero crossing (error changes sign)
+        if (Math.signum(error) != Math.signum(lastError) && Math.abs(lastError) > ZERO_THRESHOLD) {
             zeroCrossings++;
 
-            double now = timer.seconds();
+            // Track oscillation period
             if (lastCrossTime > 0) {
                 periodSum += (now - lastCrossTime);
             }
             lastCrossTime = now;
+            lastUpdateTime = now;
+
+            // 🔥 CRITICAL: Flip relay to create oscillation
+            flipOutput();
         }
 
         lastError = error;
 
-        // Relay output
+        // Relay output (bang-bang control)
         return outputPositive ? relayPower : -relayPower;
     }
 
-    public void flipOutput() {
+    private void flipOutput() {
         outputPositive = !outputPositive;
     }
 
+    /**
+     * Check if tuning is complete.
+     * @return true after 8 zero crossings (4 full oscillations)
+     */
     public boolean isFinished() {
         return zeroCrossings >= 8; // 4 full oscillations
     }
 
     /**
-     * Get tuning statistics for telemetry display.
-     * 
-     * @return Array: [zeroCrossings, maxError (degrees), minError (degrees), periodSum]
+     * Check if tuning appears stuck (no progress).
+     * Useful for detecting blocked wheels or IMU issues.
+     * @return true if no zero crossings detected for STUCK_TIMEOUT seconds
      */
+    public boolean isStuck() {
+        // Avoid false trigger on slow first oscillation
+        double timeSinceStart = timer.seconds();
+        return zeroCrossings == 0 && timeSinceStart > STUCK_TIMEOUT;
+    }
+
     public double[] getStats() {
-        return new double[] {
-            zeroCrossings,
-            Math.toDegrees(maxError),
-            Math.toDegrees(minError),
-            periodSum
+        return new double[]{
+                zeroCrossings,
+                Math.toDegrees(maxError),
+                Math.toDegrees(minError),
+                periodSum
         };
     }
 
@@ -86,6 +113,14 @@ public class HeadingAutoTuner {
         }
 
         double amplitude = (maxError - minError) / 2.0;
+        
+        // Safety: Prevent divide-by-zero or insane gains from tiny oscillation
+        if (amplitude < Math.toRadians(1.0)) { // < 1° oscillation
+            throw new IllegalStateException(
+                String.format("Oscillation amplitude too small (%.2f°) - increase RELAY_POWER or check for mechanical binding",
+                    Math.toDegrees(amplitude)));
+        }
+        
         double Ku = (4 * relayPower) / (Math.PI * amplitude);
         double Tu = periodSum / (zeroCrossings / 2.0);
 
@@ -99,6 +134,7 @@ public class HeadingAutoTuner {
 
     public static class PIDGains {
         public final double kp, ki, kd;
+
         public PIDGains(double kp, double ki, double kd) {
             this.kp = kp;
             this.ki = ki;

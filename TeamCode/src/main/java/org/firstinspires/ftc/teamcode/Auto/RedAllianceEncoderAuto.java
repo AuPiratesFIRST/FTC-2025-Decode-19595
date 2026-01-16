@@ -52,7 +52,7 @@ public class RedAllianceEncoderAuto extends OpMode {
     private boolean movementStarted;
 
     // Constants
-    private static final double SHOOTER_TARGET_RPM = 5220.0; // Consistent RPM for shooting
+    // Uses centralized value from ShooterSubsystem.TARGET_RPM
     private static final long SHOOTER_SPINUP_TIME_MS = 2000; // 2 seconds for shooter to reach RPM
     private static final long SPINDEXER_MOVE_TIME_MS = 1500; // 1.5 seconds for spindexer movement
     private static final long FIRING_DELAY_MS = 300; // Delay after spindexer moves before counting as shot
@@ -429,7 +429,7 @@ public class RedAllianceEncoderAuto extends OpMode {
 
     private void startShootingSequence() {
         // Start shooter
-        shooter.setTargetRPM(SHOOTER_TARGET_RPM);
+        shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM);
         waitingForShooter = true;
         actionTimer.reset();
         telemetry.addData("Action", "Spinning up shooter");
@@ -470,7 +470,7 @@ public class RedAllianceEncoderAuto extends OpMode {
             if (spindexer.isAtPosition() || actionTimer.milliseconds() > SPINDEXER_MOVE_TIME_MS) {
                 waitingForSpindexer = false;
                 // Restart shooter for next shot
-                shooter.setTargetRPM(SHOOTER_TARGET_RPM);
+                shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM);
                 waitingForShooter = true;
                 actionTimer.reset();
                 return true; // This shot is complete

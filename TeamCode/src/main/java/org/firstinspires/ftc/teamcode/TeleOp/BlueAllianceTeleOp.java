@@ -103,8 +103,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
     private static final double POSITION_DEADBAND = 0.75;
     private static final double ANGLE_DEADBAND_DEG = 1.5;
 
-    // Shooter RPM target
-    private static final double SHOOTER_TARGET_RPM = 5220.0;
+    // Shooter RPM target - uses centralized value from ShooterSubsystem
 
     // Alliance configuration
     private static final boolean IS_BLUE_ALLIANCE = true;
@@ -387,7 +386,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
         boolean rb = gamepad2.right_bumper;
         if ((currentMode == RobotMode.SHOOTING_READY || currentMode == RobotMode.SHOOTING_SETUP || rb) 
                 && !intakeMode) {
-            shooter.setTargetRPM(SHOOTER_TARGET_RPM);
+            shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM);
         } else {
             shooter.stop();
         }
