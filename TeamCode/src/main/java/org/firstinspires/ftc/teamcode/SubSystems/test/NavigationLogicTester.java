@@ -122,7 +122,7 @@ public class NavigationLogicTester extends LinearOpMode {
         double[] offset = pos.getTileOffset();
         telemetry.addData("Offset in Tile", "X:%.1f Y:%.1f", offset[0], offset[1]);
         
-        telemetry.addData("Current Heading", "%.1f degrees", Math.toDegrees(drive.getHeading()));
+        telemetry.addData("Current Heading", "%.1f degrees", drive.getHeadingDegrees()); // Use getHeadingDegrees() for telemetry
         
         telemetry.addLine("\n=== PHYSICAL VERIFICATION ===");
         telemetry.addLine("If Robot is on Tab W1, Telemetry should say: W1");

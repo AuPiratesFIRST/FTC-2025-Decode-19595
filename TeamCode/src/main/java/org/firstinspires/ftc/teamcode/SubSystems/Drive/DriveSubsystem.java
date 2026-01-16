@@ -407,10 +407,30 @@ public class DriveSubsystem {
      * This provides ABSOLUTE rotation measurement that is immune to wheel slip.
      * The IMU continuously tracks rotation even if wheels slip or the robot gets bumped.
      *
+     * ⚠️ UNITS: Returns heading in RADIANS
+     * 
      * @return Current heading in radians (0 = facing right, π/2 = up, π = left, 3π/2 = down)
+     * @see #getHeadingDegrees() For heading in degrees (convenience method)
      */
     public double getHeading() {
         return imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS);
+    }
+
+    /**
+     * Get the robot's current heading from the IMU sensor in degrees.
+     * 
+     * Convenience method that converts IMU reading to degrees for use with:
+     * - Auto rotation targets
+     * - AimController
+     * - Telemetry displays
+     * 
+     * ⚠️ UNITS: Returns heading in DEGREES
+     * 
+     * @return Current heading in degrees (0 = facing right, 90 = up, 180 = left, 270 = down)
+     * @see #getHeading() For heading in radians (internal use)
+     */
+    public double getHeadingDegrees() {
+        return Math.toDegrees(getHeading());
     }
 
     /**
@@ -434,7 +454,7 @@ public class DriveSubsystem {
      * @return Error in DEGREES (positive = turn CCW, negative = turn CW)
      */
     public double getHeadingError(double targetDegrees) {
-        double currentDegrees = Math.toDegrees(getHeading());
+        double currentDegrees = getHeadingDegrees(); // Use getHeadingDegrees() when working with degrees
         double error = targetDegrees - currentDegrees;
 
         // Wrap to [-180, 180]

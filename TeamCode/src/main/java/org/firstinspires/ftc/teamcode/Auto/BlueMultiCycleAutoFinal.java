@@ -92,7 +92,7 @@ public class BlueMultiCycleAutoFinal extends OpMode {
     public void start() {
         intake.setPower(INTAKE_HOLD_POWER);
         stateTimer.reset();
-        initialHeading = Math.toDegrees(drive.getHeading()); // Store original heading in DEGREES for return-to-zero
+        initialHeading = drive.getHeadingDegrees(); // Store original heading in DEGREES for return-to-zero
     }
 
     @Override

@@ -106,7 +106,7 @@ public class HeadingPIDAutoTuneTest extends LinearOpMode {
             telemetry.addLine("🔄 TUNING IN PROGRESS...");
             telemetry.addData("Zero Crossings", "%d / 8", zeroCrossings);
             telemetry.addData("Progress", "%.0f%%", progress);
-            telemetry.addData("Heading", "%.1f°", Math.toDegrees(currentHeading));
+            telemetry.addData("Heading", "%.1f°", drive.getHeadingDegrees()); // Use getHeadingDegrees() for telemetry
             telemetry.addData("Turn Power", "%.2f", turn);
             telemetry.addData("Max Error", "%.2f°", stats[1]);
             telemetry.addData("Min Error", "%.2f°", stats[2]);

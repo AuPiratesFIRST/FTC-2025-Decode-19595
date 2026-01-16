@@ -81,7 +81,7 @@ public class SimpleBlueAuto extends OpMode {
         spindexer.setIntakeMode(false);
         funnel.retract();
         funnelState = FunnelState.RETRACTED;
-        initialHeading = Math.toDegrees(drive.getHeading()); // Store original heading in DEGREES for return-to-zero
+        initialHeading = drive.getHeadingDegrees(); // Store original heading in DEGREES for return-to-zero
 
         // ✅ Start intake hold immediately
         intake.setPower(INTAKE_HOLD_POWER);

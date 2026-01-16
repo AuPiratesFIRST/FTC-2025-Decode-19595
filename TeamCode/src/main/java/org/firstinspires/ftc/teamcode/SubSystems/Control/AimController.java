@@ -193,7 +193,7 @@ public class AimController {
 
             if (corrections != null) {
                 // Calculate IMU-based rotation
-                double currentHeading = Math.toDegrees(drive.getHeading());
+                double currentHeading = drive.getHeadingDegrees(); // Use getHeadingDegrees() when working with degrees
                 double angleError = AngleUnit.normalizeDegrees(desiredAngle - currentHeading);
                 double turnPower = Range.clip(angleError * kpRot, -maxPower, maxPower);
 
@@ -222,7 +222,7 @@ public class AimController {
             visionWasLost = true;
         }
 
-        double currentHeading = Math.toDegrees(drive.getHeading());
+        double currentHeading = drive.getHeadingDegrees(); // Use getHeadingDegrees() when working with degrees
         double angleError = AngleUnit.normalizeDegrees(desiredAngle - currentHeading);
         double turnPower = Range.clip(angleError * kpRot, -maxPower, maxPower);
 

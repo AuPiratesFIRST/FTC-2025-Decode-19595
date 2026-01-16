@@ -246,7 +246,7 @@ public class TileNavigator {
             telemetry.addData("Current Tile", currentPosition.getTilePosition());
             telemetry.addData("Current Tab", currentPosition.getTabPosition());
             telemetry.addData("Position (inches)", "X: %.1f, Y: %.1f", currentPosition.getX(), currentPosition.getY());
-            telemetry.addData("Heading", "%.1f degrees", Math.toDegrees(drive.getHeading()));
+            telemetry.addData("Heading", "%.1f degrees", drive.getHeadingDegrees()); // Use getHeadingDegrees() for telemetry
 
             double[] offset = currentPosition.getTileOffset();
             telemetry.addData("Tile Offset", "X: %.1f, Y: %.1f", offset[0], offset[1]);
