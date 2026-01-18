@@ -63,6 +63,9 @@ public class AprilTagAlignmentTuner extends LinearOpMode {
         telemetryM.addLine("1. Add 'Graph' widget in Panels");
         telemetryM.addLine("2. Select 'Error_Dist' or 'Error_Ang'");
         telemetryM.addLine("3. Hold Y to align");
+        telemetryM.addLine("");
+        telemetryM.addLine("⚠️ Start with low MAX_POWER!");
+        telemetryM.addLine("Note: No IMU fallback in this tuner");
         telemetryM.update();
 
         waitForStart();
@@ -98,6 +101,11 @@ public class AprilTagAlignmentTuner extends LinearOpMode {
         aprilTag.closeVision();
     }
 
+    // Store last corrections for telemetry
+    private double lastCorrectionForward = 0;
+    private double lastCorrectionStrafe = 0;
+    private double lastCorrectionTurn = 0;
+
     private void runAlignment(AprilTagDetection tag) {
         double[] corrections = aprilTag.calculateAlignmentCorrections(
                 tag,
@@ -113,10 +121,17 @@ public class AprilTagAlignmentTuner extends LinearOpMode {
         );
 
         if (corrections != null) {
-            drive.drive(corrections[1], corrections[0], corrections[2]);
+            lastCorrectionForward = corrections[0];
+            lastCorrectionStrafe = corrections[1];
+            lastCorrectionTurn = corrections[2];
+            
+            drive.drive(lastCorrectionStrafe, lastCorrectionForward, lastCorrectionTurn);
             isAligned = (corrections[3] == 1.0);
         } else {
             drive.stop();
+            lastCorrectionForward = 0;
+            lastCorrectionStrafe = 0;
+            lastCorrectionTurn = 0;
         }
     }
 
@@ -126,15 +141,16 @@ public class AprilTagAlignmentTuner extends LinearOpMode {
         telemetryM.addData("Aligned", isAligned);
 
         if (tag != null) {
-            // Calculate Errors
+            // Calculate Errors (positive = need to move in positive direction)
             double errDist = tag.ftcPose.y - Target_Distance;
-            double errAng = tag.ftcPose.yaw + Target_Angle;
-            double errStrafe = tag.ftcPose.x; 
+            double errAng = Target_Angle - tag.ftcPose.yaw;  // Fixed: Target - Current for correct sign
+            double errStrafe = tag.ftcPose.x;  // Strafe error from center 
 
             // === DATA FOR GRAPHING ===
             // Panels Graph looks for <Name>:<Value>
             // JoinedTelemetry handles formatting automatically for numbers
             
+            // Errors (input to PID)
             telemetryM.addData("Error_Dist", errDist);   // Graph this to tune kP_Forward
             telemetryM.addData("Error_Ang", errAng);     // Graph this to tune kP_Rotation
             telemetryM.addData("Error_Strafe", errStrafe); // Graph this to tune kP_Strafe
@@ -142,6 +158,12 @@ public class AprilTagAlignmentTuner extends LinearOpMode {
             // Also useful to graph the raw position vs target
             telemetryM.addData("Raw_Dist", tag.ftcPose.y);
             telemetryM.addData("Target_Dist", Target_Distance);
+            
+            // Correction Outputs (PID output - actual motor commands)
+            // Graph these alongside errors to see response time & overshoot
+            telemetryM.addData("Correction_Forward", lastCorrectionForward);
+            telemetryM.addData("Correction_Strafe", lastCorrectionStrafe);
+            telemetryM.addData("Correction_Turn", lastCorrectionTurn);
         } else {
             // Send 0 or previous value when tag lost to keep graph scrolling
             telemetryM.addData("Error_Dist", 0);

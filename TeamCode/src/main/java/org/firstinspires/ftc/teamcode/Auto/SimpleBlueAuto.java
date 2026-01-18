@@ -132,8 +132,10 @@ public class SimpleBlueAuto extends OpMode {
             case FIRE:
                 if (shotIndex < 3) {
 
-                    // Step 1: Move spindexer
-                    spindexer.goToPositionForCurrentMode(shotIndex);
+                    // Step 1: Move spindexer (only when funnel is fully retracted)
+                    if (funnelState == FunnelState.RETRACTED) {
+                        spindexer.goToPositionForCurrentMode(shotIndex);
+                    }
 
                     if (spindexer.isAtPosition()
                             && (shooter.isAtTargetRPM()
@@ -214,6 +216,7 @@ public class SimpleBlueAuto extends OpMode {
         telemetry.addData("SHOOTER RPM", "%.0f / %.0f",
                 shooter.getCurrentRPM(), shooter.getTargetRPM());
         telemetry.addData("FUNNEL", funnelState);
+        telemetry.addData("Spindexer Safe", funnelState == FunnelState.RETRACTED ? "YES" : "NO");
         telemetry.update();
     }
 }

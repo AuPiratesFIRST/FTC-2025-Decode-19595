@@ -259,6 +259,8 @@ public class BlueMultiCycleAutoFinal extends OpMode {
 
         telemetry.addData("STATE", state);
         telemetry.addData("SHOT", shotIndex);
+        telemetry.addData("FUNNEL", funnelState);
+        telemetry.addData("Spindexer Safe", funnelState == FunnelState.RETRACTED ? "YES" : "NO");
         telemetry.addData("RPM", shooter.getCurrentRPM());
         telemetry.update();
     }
@@ -267,9 +269,11 @@ public class BlueMultiCycleAutoFinal extends OpMode {
     private boolean runShooterCycle() {
 
         if (shotIndex >= 3) return true;
-        if (funnelState != FunnelState.RETRACTED) return false;
 
-        spindexer.goToPositionForCurrentMode(shotIndex);
+        // Only move spindexer when funnel is fully retracted
+        if (funnelState == FunnelState.RETRACTED) {
+            spindexer.goToPositionForCurrentMode(shotIndex);
+        }
 
         if (!spindexer.isAtPosition() || !shooter.isAtTargetRPM()) return false;
 

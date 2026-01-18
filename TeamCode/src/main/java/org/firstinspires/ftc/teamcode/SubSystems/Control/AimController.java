@@ -20,6 +20,12 @@ import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
  * - Alliance-aware goal targeting (Blue/Red with triangular goal geometry)
  * 
  * Used by both TeleOp and Autonomous to eliminate duplication.
+ *
+ * Units:
+ * - Heading math in this controller uses DEGREES for target angles
+ * - Always read robot heading via DriveSubsystem.getHeadingDegrees()
+ * - Internal subsystems (Drive/TileNavigator) keep headings in RADIANS
+ *   and expose degrees via helper methods when needed for Auto/Telemetry
  */
 public class AimController {
 
