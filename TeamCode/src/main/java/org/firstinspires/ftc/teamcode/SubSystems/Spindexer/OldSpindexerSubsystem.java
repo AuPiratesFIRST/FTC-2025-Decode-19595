@@ -17,7 +17,7 @@ public class OldSpindexerSubsystem {
     private static final double TICKS_PER_REVOLUTION = 2150.8;
 
     // Position definitions
-    public static final int[] INTAKE_POSITIONS = { 10, 717, 1434 };
+    public static final int[] INTAKE_POSITIONS = { 10, 215, 392 };
     public static final int[] OUTTAKE_POSITIONS = { 268, 451, 630 };
 
     // COMPETITION TUNED COEFFICIENTS - Aggressive "Lockdown" Tuning
@@ -42,7 +42,7 @@ public class OldSpindexerSubsystem {
     private int targetPosition = 0;
 
     private static final int POSITION_TOLERANCE = 8; // Tighter tolerance for accuracy
-    private static final double SPEED_MULTIPLIER = 0.4; // Increased from 0.35 for better response
+    private static final double SPEED_MULTIPLIER = 0.2; // Increased from 0.35 for better response
     private static final double GRAVITY_FEEDFORWARD = 0.08; // 8% power to counter gravity in vertical spindexer
 
     private boolean pidEnabled = false;
@@ -50,7 +50,7 @@ public class OldSpindexerSubsystem {
     private boolean intakeMode = true;
 
     public enum SpindexerPosition {
-        POSITION_1(10), POSITION_2(717), POSITION_3(1434);
+        POSITION_1(10), POSITION_2(215), POSITION_3(392);
         private final int ticks;
         SpindexerPosition(int ticks) { this.ticks = ticks; }
         public int getTicks() { return ticks; }

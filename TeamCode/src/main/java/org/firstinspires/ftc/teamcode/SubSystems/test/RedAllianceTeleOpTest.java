@@ -65,7 +65,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
     // Uses centralized value from ShooterSubsystem.TARGET_RPM
     
     // === INTAKE POWER CONFIG (Keeper Wheel Pattern) ===
-    private static final double INTAKE_HOLD_POWER = 0.5;      // Always-on background power
+    private static final double INTAKE_HOLD_POWER = 0.62;      // Always-on background power
     private static final double INTAKE_FULL_POWER = 1.0;       // Full intake (trigger pressed)
     private static final double INTAKE_REVERSE_POWER = -1.0;   // Reverse (bumper pressed)
     
@@ -89,7 +89,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
         // Initialize AimController with competition settings
         aimController = new AimController(aprilTag, drive, telemetry);
         aimController.setDesiredDistance(134);
-        aimController.setDesiredAngle(21);
+        aimController.setDesiredAngle(25.5);
         aimController.setGains(0.03, 0.03, 0.015);
         aimController.setMaxPower(0.40);
         aimController.setDeadbands(0.75, 1.5, 2.0);
@@ -120,14 +120,8 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
                 // Reset to position 0 in the new mode
                 spindexerIndex = 0;
                 
-                // If switching from intake to outtake, use backward movement
-                if (wasIntakeMode && !intakeMode) {
-                    int targetTicks = OldSpindexerSubsystem.OUTTAKE_POSITIONS[0];
-                    spindexer.goToPositionBackwardOnly(targetTicks);
-                } else {
-                    // Otherwise use normal shortest path
-                    spindexer.goToPositionForCurrentMode(0);
-                }
+                // Always use forward-only movement (goToPositionForCurrentMode now always goes forward)
+                spindexer.goToPositionForCurrentMode(0);
                 
                 if (intakeMode) {
                     currentMode = RobotMode.INTAKE;
@@ -181,7 +175,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
                 intakeMode = true;
                 spindexerIndex = 0;
                 spindexer.setIntakeMode(true);
-                spindexer.goToPositionForCurrentMode(0);
+                spindexer.goToPositionForwardOnly(0);
                 currentMode = RobotMode.INTAKE;
             } else {
                 spindexer.goToPositionForCurrentMode(spindexerIndex);
@@ -195,7 +189,7 @@ public class RedAllianceTeleOpTest extends LinearOpMode {
             intakeMode = true;
             spindexerIndex = 0;
             spindexer.setIntakeMode(true);
-            spindexer.goToPositionForCurrentMode(0);
+            spindexer.goToPositionForwardOnly(0);
             currentMode = RobotMode.INTAKE;
         }
         lastInputDpadDown = gamepad2.dpad_down;

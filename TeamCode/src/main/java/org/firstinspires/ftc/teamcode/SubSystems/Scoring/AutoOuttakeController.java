@@ -163,7 +163,7 @@ public class AutoOuttakeController {
 
             case COOLDOWN:
                 shooter.stop();
-                if (funnel.getState() != FunnelSubsystem.FunnelState.RETRACTED) {
+                if (funnel.isExtended()) {
                     funnel.retract();
                 }
                 spindexer.setIntakeMode(true);

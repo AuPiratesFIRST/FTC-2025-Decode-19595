@@ -54,12 +54,12 @@ public class AimController {
     // Fixed aiming angles for each alliance (degrees)
     // Blue goal at (12, 132): hypotenuse angles down-right at 45°
     // Red goal at (132, 132): hypotenuse angles down-left at 135°
-    private static final double ANGLE_BLUE = 45.0;
-    private static final double ANGLE_RED = 135.0;
+    private static final double ANGLE_BLUE = 25.0;
+    private static final double ANGLE_RED = -25.5;
 
     // === CONFIGURATION (Tunable) ===
     private double desiredDistance = 134.0;
-    private double desiredAngle = 45.0; // Will be set by setAlliance()
+    private double desiredAngle = 25.0; // Will be set by setAlliance()
     private double kpStrafe = 0.03;
     private double kpForward = 0.03;
     private double kpRot = 0.015;

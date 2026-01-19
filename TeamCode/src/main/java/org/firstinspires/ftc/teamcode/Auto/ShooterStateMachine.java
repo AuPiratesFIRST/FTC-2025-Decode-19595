@@ -1,5 +1,7 @@
 package org.firstinspires.ftc.teamcode.Auto;
 
+import static org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem.TARGET_RPM;
+
 import com.qualcomm.robotcore.util.ElapsedTime;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
@@ -64,7 +66,7 @@ public class ShooterStateMachine {
 
             case IDLE:
                 if (shotsRemaining > 0) {
-                    shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM);
+                    shooter.setTargetRPM(TARGET_RPM);
                     spindexer.goToPositionForCurrentMode(spindexerIndex);
                     state = ShooterState.SPIN_UP;
                     stateTimer.reset();
@@ -76,7 +78,7 @@ public class ShooterStateMachine {
 
                 boolean rpmReady =
                         shooter.isAtTargetRPM() ||
-                                Math.abs(shooter.getCurrentRPM() - ShooterSubsystem.TARGET_RPM) < RPM_TOLERANCE;
+                                Math.abs(shooter.getCurrentRPM() - TARGET_RPM) < RPM_TOLERANCE;
 
                 if (spindexer.isAtPosition() && rpmReady) {
                     funnel.extend();

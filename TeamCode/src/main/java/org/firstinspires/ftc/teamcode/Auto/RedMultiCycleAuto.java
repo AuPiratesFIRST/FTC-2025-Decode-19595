@@ -35,8 +35,8 @@ public class RedMultiCycleAuto extends OpMode {
     static final double CREEP_POWER = 0.25;
     static final double CREEP_DISTANCE_PER_BALL = 6.0;
 
-    static final long FUNNEL_EXTEND_TIME_MS = 400;
-    static final long FUNNEL_HOLD_TIME_MS = 300;
+    static final long FUNNEL_EXTEND_TIME_MS = 450;
+    static final long FUNNEL_HOLD_TIME_MS = 200;
 
     /* ================= RETURN TO ZERO CONFIG ================= */
     private double initialHeading = 0.0; // Store original heading at start

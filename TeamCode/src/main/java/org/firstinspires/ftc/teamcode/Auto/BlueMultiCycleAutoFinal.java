@@ -47,6 +47,7 @@ public class BlueMultiCycleAutoFinal extends OpMode {
     private enum State {
         WALL_CLEARANCE,
         ALIGN_PRELOAD,
+        SPINUP_PRELOAD,
         SHOOT_PRELOAD,
         ROTATE_BACK_ZERO,
         DRIVE_TO_C2,
@@ -54,6 +55,7 @@ public class BlueMultiCycleAutoFinal extends OpMode {
         INTAKE_CREEP,
         RETURN_PATH,
         FINAL_ALIGN,
+        SPINUP_FINAL,
         FINAL_SHOOT,
         RETURN_TO_ZERO,
         DONE
@@ -78,6 +80,8 @@ public class BlueMultiCycleAutoFinal extends OpMode {
         aprilTag = new AprilTagNavigator(drive, hardwareMap, telemetry);
 
         aim = new AimController(aprilTag, drive, telemetry);
+        // Added my Mr Cameron
+        aim.setAlliance(AimController.AllianceColor.BLUE);
         aim.setTargetTagId(24);
 
         tileNavigator = new TileNavigator(drive, telemetry);
@@ -127,6 +131,14 @@ public class BlueMultiCycleAutoFinal extends OpMode {
                 drive.drive(a.forward, a.strafe, a.turn);
                 if (a.aligned) {
                     drive.stop();
+                    state = State.SPINUP_PRELOAD;
+                }
+                break;
+
+            /* ===== Spinup Preload ===== */
+            case SPINUP_PRELOAD:
+                shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM);
+                if (shooter.isAtTargetRPM()) {
                     shotIndex = 0;
                     stateTimer.reset();
                     state = State.SHOOT_PRELOAD;
@@ -219,7 +231,16 @@ public class BlueMultiCycleAutoFinal extends OpMode {
                 drive.drive(f.forward, f.strafe, f.turn);
                 if (f.aligned) {
                     drive.stop();
+                    state = State.SPINUP_FINAL;
+                }
+                break;
+
+            /* ===== Spinup Final ===== */
+            case SPINUP_FINAL:
+                shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM);
+                if (shooter.isAtTargetRPM()) {
                     shotIndex = 0;
+                    stateTimer.reset();
                     state = State.FINAL_SHOOT;
                 }
                 break;

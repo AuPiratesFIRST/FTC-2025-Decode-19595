@@ -66,19 +66,14 @@ public class RedAllianceTeleOp extends LinearOpMode {
     private int spindexerPositionIndex = 0;
     private boolean intakeMode = true; // true = Intake, false = Outtake
     private double driveSpeed = 1.0;
-    private boolean inverseDirection = false;
 
     // Input Latches
-    private boolean spindexerPressLast = false;
-    private boolean dpadDownLast = false;
-    private boolean dpadUpLast = false;
-    private boolean rbPressedLast = false;
-    private boolean yPressedLast = false;
-    private boolean xPressedLast = false; // Manual control toggle
-    private boolean dpadLeftLast = false;
-    private boolean dpadRightLast = false;
-    private boolean aPressedLast = false;
-    private boolean bPressedLast = false;
+    private boolean lastInputA = false;
+    private boolean lastInputB = false;
+    private boolean lastInputX = false;
+    private boolean lastInputDpadDown = false;
+    private boolean lastInputDpadLeft = false;
+    private boolean lastInputDpadRight = false;
 
     // === DRIVE INPUT CONSTANTS ===
     private static final double STICK_DEADBAND = 0.05;     // Prevent drift from stick noise
@@ -137,11 +132,11 @@ public class RedAllianceTeleOp extends LinearOpMode {
 
         // Initialize AimController with competition settings
         aimController = new AimController(aprilTag, drive, telemetry);
-        aimController.setDesiredDistance(DESIRED_SHOOTING_DISTANCE);
-        aimController.setDesiredAngle(DESIRED_SHOOTING_Angle);
-        aimController.setGains(KP_STRAFE, KP_FORWARD, KP_ROT);
-        aimController.setMaxPower(MAX_AUTO_POWER);
-        aimController.setDeadbands(POSITION_DEADBAND, ANGLE_DEADBAND_DEG, 2.0);
+        aimController.setDesiredDistance(134);
+        aimController.setDesiredAngle(21);
+        aimController.setGains(0.03, 0.03, 0.015);
+        aimController.setMaxPower(0.40);
+        aimController.setDeadbands(0.75, 1.5, 2.0);
         aimController.setTargetTagId(TARGET_TAG_ID);
         aimController.setVisionLossTimeout(500);
         aimController.setVisionSmoothing(0.3);
@@ -186,38 +181,31 @@ public class RedAllianceTeleOp extends LinearOpMode {
             shooter.updateVoltageCompensation();
 
             // 1. MANUAL OVERRIDE TOGGLE
-            boolean x = gamepad2.x;
-            if (x && !xPressedLast) {
-                if (currentMode == RobotMode.MANUAL_OVERRIDE) {
-                    currentMode = RobotMode.INTAKE;
-                } else {
+            if (gamepad2.x && !lastInputX) {
+                if (currentMode == RobotMode.MANUAL_OVERRIDE) currentMode = RobotMode.INTAKE;
+                else {
                     currentMode = RobotMode.MANUAL_OVERRIDE;
                     spindexer.lockCurrentPosition();
                 }
             }
-            xPressedLast = x;
+            lastInputX = gamepad2.x;
 
             // 1.5 INTAKE/OUTTAKE MODE TOGGLE (D-Pad Left)
-            boolean dpadLeft = gamepad2.dpad_left;
-            if (dpadLeft && !dpadLeftLast && currentMode != RobotMode.MANUAL_OVERRIDE) {
+            if (gamepad2.dpad_left && !lastInputDpadLeft) {
                 boolean wasIntakeMode = intakeMode;
                 intakeMode = !intakeMode;
                 spindexer.setIntakeMode(intakeMode);
-                spindexerPositionIndex = 0; // Reset position when mode changes
-
-                // If switching from intake to outtake, use forward-only movement
-                if (wasIntakeMode && !intakeMode) {
-                    spindexer.goToPositionForwardOnly(OldSpindexerSubsystem.OUTTAKE_POSITIONS[0]);
-                    currentMode = RobotMode.SHOOTING_SETUP;
-                } else {
-                    // Otherwise use normal shortest path
-                    spindexer.goToPositionForCurrentMode(0);
-                    if (intakeMode) {
-                        currentMode = RobotMode.INTAKE;
-                    }
+                // Reset to position 0 in the new mode
+                spindexerPositionIndex = 0;
+                
+                // Always use forward-only movement (goToPositionForCurrentMode now always goes forward)
+                spindexer.goToPositionForCurrentMode(0);
+                
+                if (intakeMode) {
+                    currentMode = RobotMode.INTAKE;
                 }
             }
-            dpadLeftLast = dpadLeft;
+            lastInputDpadLeft = gamepad2.dpad_left;
 
             // 2. STATE MACHINE TRANSITIONS
             if (currentMode != RobotMode.MANUAL_OVERRIDE) {
@@ -254,9 +242,8 @@ public class RedAllianceTeleOp extends LinearOpMode {
             return; // Block all spindexer transitions while funnel is moving
         }
 
-        // Press B: Start Shooting Sequence (Ball 1) - Switch to outtake mode
-        boolean b = gamepad2.b;
-        if (b && !bPressedLast && currentMode == RobotMode.INTAKE) {
+        // Press B: Start Shooting Sequence (Ball 1)
+        if (gamepad2.b && !lastInputB && currentMode == RobotMode.INTAKE) {
             intakeMode = false;
             spindexerPositionIndex = 0;
             spindexer.setIntakeMode(false);
@@ -264,11 +251,10 @@ public class RedAllianceTeleOp extends LinearOpMode {
             spindexer.goToPositionForwardOnly(OldSpindexerSubsystem.OUTTAKE_POSITIONS[0]);
             currentMode = RobotMode.SHOOTING_SETUP;
         }
-        bPressedLast = b;
+        lastInputB = gamepad2.b;
 
         // Press A: Move to next Ball (1 -> 2 -> 3 -> Intake)
-        boolean a = gamepad2.a;
-        if (a && !aPressedLast) {
+        if (gamepad2.a && !lastInputA) {
             spindexerPositionIndex++;
             if (spindexerPositionIndex > 2) {
                 // Return to Intake configuration
@@ -282,18 +268,17 @@ public class RedAllianceTeleOp extends LinearOpMode {
                 currentMode = RobotMode.SHOOTING_SETUP;
             }
         }
-        aPressedLast = a;
+        lastInputA = gamepad2.a;
 
-        // Reset to Intake via D-Pad Down
-        boolean dpadDown = gamepad2.dpad_down;
-        if (dpadDown && !dpadDownLast) {
+        // Reset to Intake via D-Pad
+        if (gamepad2.dpad_down && !lastInputDpadDown) {
             intakeMode = true;
             spindexerPositionIndex = 0;
             spindexer.setIntakeMode(true);
             spindexer.goToPositionForCurrentMode(0);
             currentMode = RobotMode.INTAKE;
         }
-        dpadDownLast = dpadDown;
+        lastInputDpadDown = gamepad2.dpad_down;
 
         // Auto-Ready Transition (with debounce to prevent flickering)
         if (currentMode == RobotMode.SHOOTING_SETUP && spindexer.isAtPosition()) {
@@ -311,61 +296,36 @@ public class RedAllianceTeleOp extends LinearOpMode {
     private void handleDriveAndAlignment() {
         // --- UNIFIED ALIGNMENT: Vision + IMU Fusion with Fallback ---
         // Hold Y to activate auto-alignment using AimController
-        boolean y = gamepad2.y;
-        if (y) {
+        if (gamepad2.y) {
             AimController.AlignmentResult result = aimController.update();
             drive.drive(result.strafe, result.forward, result.turn);
             return;
         }
-        yPressedLast = y;
 
         // --- MANUAL DRIVER CONTROLS ---
-        // Inverse direction toggle (D-Pad Up on Gamepad 1)
-        boolean dpadUp = gamepad1.dpad_up;
-        if (dpadUp && !dpadUpLast) {
-            inverseDirection = !inverseDirection;
-        }
-        dpadUpLast = dpadUp;
+        // Standard teleop driving (not vision-assisted)
+        if (gamepad1.a) driveSpeed = 1.0;
+        if (gamepad1.b) driveSpeed = 0.5;
 
-        // Drive speed toggle
-        if (gamepad1.a && !aPressedLast) driveSpeed = 1.0;
-        if (gamepad1.b && !bPressedLast) driveSpeed = 0.5;
-        aPressedLast = gamepad1.a;
-        bPressedLast = gamepad1.b;
-
-        // Get standard controls from left stick
-        float forward = gamepad1.left_stick_y;
-        float strafe = -gamepad1.left_stick_x;
-        float turn = -gamepad1.right_stick_x;
-
-        // Add diagonal forward/backward movement from right stick Y axis
-        float diagonalForward = gamepad1.right_stick_y;
-        forward += diagonalForward;
-
-        // Apply inverse direction if enabled
-        if (inverseDirection) {
-            forward = -forward;
-            strafe = -strafe;
-            turn = -turn;
-        }
-
-        // Apply deadband to prevent stick drift
-        forward = applyDeadband(forward, STICK_DEADBAND);
-        strafe = applyDeadband(strafe, STICK_DEADBAND);
-        turn = applyDeadband(turn, STICK_DEADBAND);
+        // Apply deadband to prevent stick drift (combine sticks before deadband)
+        float forward = applyDeadband(gamepad1.left_stick_y + gamepad1.right_stick_y, STICK_DEADBAND);
+        float strafe = applyDeadband(-gamepad1.left_stick_x, STICK_DEADBAND);
+        float turn = applyDeadband(-gamepad1.right_stick_x, STICK_DEADBAND);
 
         // Apply cubic scaling for smoother low-speed control
         forward = (float) Math.copySign(Math.pow(Math.abs(forward), CUBIC_INPUT_POWER), forward);
         strafe = (float) Math.copySign(Math.pow(Math.abs(strafe), CUBIC_INPUT_POWER), strafe);
         turn = (float) Math.copySign(Math.pow(Math.abs(turn), CUBIC_INPUT_POWER), turn);
 
-        // Normalize powers to prevent exceeding 1.0
+        // Normalize powers to prevent exceeding 1.0 (improves on 0.5 + |turn| heuristic)
         double max = Math.max(1.0, Math.abs(forward) + Math.abs(strafe) + Math.abs(turn));
         forward /= max;
         strafe /= max;
         turn /= max;
 
         drive.drive(forward * driveSpeed, strafe * driveSpeed, turn * driveSpeed);
+        
+        if (gamepad1.start) drive.resetHeading();
     }
 
     /**
@@ -383,14 +343,12 @@ public class RedAllianceTeleOp extends LinearOpMode {
 
     private void executeHardwareActions() {
         // Shooter logic: Spin up during setup/ready or manual override (but NOT in intake mode)
-        boolean rb = gamepad2.right_bumper;
-        if ((currentMode == RobotMode.SHOOTING_READY || currentMode == RobotMode.SHOOTING_SETUP || rb) 
+        if ((currentMode == RobotMode.SHOOTING_READY || currentMode == RobotMode.SHOOTING_SETUP || gamepad2.right_bumper) 
                 && !intakeMode) {
             shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM);
         } else {
             shooter.stop();
         }
-        rbPressedLast = rb;
 
         // === FUNNEL STATE MACHINE ===
         // Ensures funnel fully extends/retracts before spindexer can move (collision prevention)
@@ -452,13 +410,12 @@ public class RedAllianceTeleOp extends LinearOpMode {
             }
 
             // D-Pad Right: Manual position increment
-            boolean dpadRight = gamepad2.dpad_right;
-            if (dpadRight && !dpadRightLast && spindexer.isAtPosition()) {
+            if (gamepad2.dpad_right && !lastInputDpadRight && spindexer.isAtPosition()) {
                 spindexerPositionIndex = (spindexerPositionIndex + 1) % 3;
                 spindexer.setPIDEnabled(true);
                 spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
             }
-            dpadRightLast = dpadRight;
+            lastInputDpadRight = gamepad2.dpad_right;
         }
     }
 
