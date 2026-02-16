@@ -18,7 +18,7 @@ public class TagChaserOp extends LinearOpMode {
 
     // --- GAINS ---
     private final double Kp = 0.079;
-    private final double StrafeKp = 0.072;
+    private final double StrafeKp = 0.075;
     private final double StrafeKd = 0.030;
     private final double TurnKp = 0.020;
 
@@ -27,7 +27,7 @@ public class TagChaserOp extends LinearOpMode {
     private final double FORWARD_DEADBAND = 1.0;  // Inches: Ignore distance error less than 1"
     private final double TURN_DEADBAND = 1.5;     // Degrees: Ignore rotation error less than 1.5 deg
 
-    private final double DESIRED_DISTANCE = 30.0;
+    private final double DESIRED_DISTANCE = 36.0;
     private final double SPEED_LIMIT = 1.0;
 
     // Logic State for D-Term

@@ -178,7 +178,7 @@ public class AprilTagNavigator {
 
     public AprilTagDetection getBestDetection() {
         return aprilTag.getDetections().stream()
-                .filter(tag -> tag.id == 20 || tag.id == 24)
+                .filter(tag -> tag.id == 20 || tag.id == 21)
                 .filter(tag -> tag.ftcPose.range <= MAX_DETECTION_DISTANCE)
                 .min(Comparator.comparingDouble(tag -> tag.ftcPose.range))
                 .orElse(null);
