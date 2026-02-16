@@ -75,7 +75,7 @@ public class AprilTagNavigator {
                 .addProcessor(aprilTag)
                 .build();
 
-//        FtcDashboard.getInstance().startCameraStream(visionPortal, 15);
+        FtcDashboard.getInstance().startCameraStream(visionPortal, 15);
     }
 
     // ==================== RESTORED METHODS FOR COMPATIBILITY ====================
