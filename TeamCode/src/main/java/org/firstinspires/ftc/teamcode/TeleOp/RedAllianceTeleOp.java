@@ -15,6 +15,7 @@ import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
 import org.firstinspires.ftc.teamcode.SubSystems.Vision.ObeliskMotifDetector;
 import org.firstinspires.ftc.teamcode.SubSystems.Control.AimController;
 import org.firstinspires.ftc.teamcode.SubSystems.Scoring.ArtifactColor;
+import static com.pedropathing.ivy.commands.Commands.*;
 
 /**
  * Red Alliance TeleOp with AprilTag alignment and automated scoring sequence.
@@ -48,7 +49,6 @@ import org.firstinspires.ftc.teamcode.SubSystems.Scoring.ArtifactColor;
 public class RedAllianceTeleOp extends LinearOpMode {
 
     private enum RobotMode { INTAKE, SHOOTING_SETUP, SHOOTING_READY, MANUAL_OVERRIDE }
-    private enum FunnelState { RETRACTED, EXTENDING, EXTENDED, RETRACTING }
 
     // Subsystems
     private DriveSubsystem drive;
@@ -61,7 +61,6 @@ public class RedAllianceTeleOp extends LinearOpMode {
 
     // State Variables
     private RobotMode currentMode = RobotMode.INTAKE;
-    private FunnelState funnelState = FunnelState.RETRACTED;
     private int spindexerPositionIndex = 0;
     private boolean intakeMode = true; // true = Intake, false = Outtake
     private double driveSpeed = 1.0;
@@ -78,12 +77,6 @@ public class RedAllianceTeleOp extends LinearOpMode {
     private static final double STICK_DEADBAND = 0.05;     // Prevent drift from stick noise
     private static final double CUBIC_INPUT_POWER = 3.0;   // Smooth low-speed control
 
-    // === SPINDEXER STATE TRACKING ===
-    private long spindexerReadyTime = 0;                    // Debounce timer for mode transitions
-    private static final long SPINDEXER_DEBOUNCE_MS = 100;  // 100ms debounce
-
-    // === FUNNEL STATE MACHINE ===
-    private long funnelTimer = 0;
     private static final long FUNNEL_EXTEND_TIME_MS = 400;  // Time to fully extend/retract
     private static final long FUNNEL_HOLD_TIME_MS = 300;    // Hold time before retracting
 
@@ -116,6 +109,10 @@ public class RedAllianceTeleOp extends LinearOpMode {
     private ArtifactColor[] lockedMotif = null; // Locked at start, holds motif for entire match
     private int lockedMotifTagId = -1; // Locked obelisk tag ID
     private Command teleOpLoopCommand;
+    private Command intakeCommand;
+    private Command activeShotSequence;
+    private Command alignCommand;
+    private Command manualShooterCommand;
 
     @Override
     public void runOpMode() {
@@ -188,6 +185,14 @@ public class RedAllianceTeleOp extends LinearOpMode {
                     funnel.retract();
                 });
         Scheduler.schedule(teleOpLoopCommand);
+        intakeCommand = infinite(this::applyIntakePower);
+        Scheduler.schedule(intakeCommand);
+        alignCommand = infinite(() -> {
+            AimController.AlignmentResult result = aimController.update();
+            drive.drive(result.forward, result.strafe, result.turn);
+        }).requiring(drive);
+        manualShooterCommand = infinite(() -> shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM))
+                .requiring(shooter);
 
         while (opModeIsActive()) {
             Scheduler.execute();
@@ -229,80 +234,54 @@ public class RedAllianceTeleOp extends LinearOpMode {
         if (currentMode != RobotMode.MANUAL_OVERRIDE) {
             handleCircularTransitions();
         }
-        handleDriveAndAlignment();
-        handleIntake();
+        handleAlignmentCommand();
+        if (!isAlignActive()) {
+            handleDriveManual();
+        }
         executeHardwareActions();
         spindexer.update();
     }
 
-    private void handleCircularTransitions() {
-        // ✅ COLLISION PREVENTION: Only allow spindexer movement when funnel is fully retracted
-        if (funnelState != FunnelState.RETRACTED) {
-            return; // Block all spindexer transitions while funnel is moving
+    private void handleAlignmentCommand() {
+        if (gamepad2.y) {
+            if (!isAlignActive()) {
+                alignCommand.schedule();
+            }
+            return;
         }
+        if (isAlignActive()) {
+            alignCommand.cancel();
+            drive.stop();
+        }
+    }
 
-        // Press B: Start Shooting Sequence (Ball 1)
-        if (gamepad2.b && !lastInputB && currentMode == RobotMode.INTAKE) {
-            intakeMode = false;
+    private void handleCircularTransitions() {
+        if (gamepad2.b && !lastInputB && intakeMode) {
             spindexerPositionIndex = 0;
-            spindexer.setIntakeMode(false);
-            // ✅ FORWARD-ONLY: Guarantee clockwise movement from intake to outtake
-            spindexer.goToPositionForwardOnly(OldSpindexerSubsystem.OUTTAKE_POSITIONS[0]);
-            currentMode = RobotMode.SHOOTING_SETUP;
+            scheduleShotSequenceForIndex(spindexerPositionIndex);
         }
         lastInputB = gamepad2.b;
 
-        // Press A: Move to next Ball (1 -> 2 -> 3 -> Intake)
-        if (gamepad2.a && !lastInputA) {
+        if (gamepad2.a && !lastInputA && !intakeMode && !isShotSequenceActive()) {
             spindexerPositionIndex++;
             if (spindexerPositionIndex > 2) {
-                // Return to Intake configuration
-                intakeMode = true;
-                spindexerPositionIndex = 0;
-                spindexer.setIntakeMode(true);
-                spindexer.goToPositionForCurrentMode(0);
-                currentMode = RobotMode.INTAKE;
+                resetToIntakeMode();
             } else {
-                spindexer.goToPositionForCurrentMode(spindexerPositionIndex);
-                currentMode = RobotMode.SHOOTING_SETUP;
+                scheduleShotSequenceForIndex(spindexerPositionIndex);
             }
         }
         lastInputA = gamepad2.a;
 
-        // Reset to Intake via D-Pad
         if (gamepad2.dpad_down && !lastInputDpadDown) {
-            intakeMode = true;
-            spindexerPositionIndex = 0;
-            spindexer.setIntakeMode(true);
-            spindexer.goToPositionForCurrentMode(0);
-            currentMode = RobotMode.INTAKE;
+            if (isShotSequenceActive()) {
+                activeShotSequence.cancel();
+            }
+            resetToIntakeMode();
         }
         lastInputDpadDown = gamepad2.dpad_down;
-
-        // Auto-Ready Transition (with debounce to prevent flickering)
-        if (currentMode == RobotMode.SHOOTING_SETUP && spindexer.isAtPosition()) {
-            if (spindexerReadyTime == 0) {
-                spindexerReadyTime = System.currentTimeMillis();
-            } else if (System.currentTimeMillis() - spindexerReadyTime >= SPINDEXER_DEBOUNCE_MS) {
-                currentMode = RobotMode.SHOOTING_READY;
-                spindexerReadyTime = 0; // Reset debounce
-            }
-        } else {
-            spindexerReadyTime = 0; // Reset if position check fails
-        }
     }
 
-    private void handleDriveAndAlignment() {
-        // --- UNIFIED ALIGNMENT: Vision + IMU Fusion with Fallback ---
-        // Hold Y to activate auto-alignment using AimController
-        if (gamepad2.y) {
-            AimController.AlignmentResult result = aimController.update();
-            drive.drive(result.forward, result.strafe, result.turn);
-            return;
-        }
-
-        // --- MANUAL DRIVER CONTROLS ---
-        // Standard teleop driving (not vision-assisted)
+    private void handleDriveManual() {
         if (gamepad1.a) driveSpeed = 1.0;
         if (gamepad1.b) driveSpeed = 0.5;
 
@@ -341,56 +320,31 @@ public class RedAllianceTeleOp extends LinearOpMode {
     }
 
     private void executeHardwareActions() {
-        // Shooter logic: Spin up during setup/ready or manual override (but NOT in intake mode)
-        if ((currentMode == RobotMode.SHOOTING_READY || currentMode == RobotMode.SHOOTING_SETUP || gamepad2.right_bumper) 
-                && !intakeMode) {
-            shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM);
-        } else {
-            shooter.stop();
+        if (gamepad2.right_bumper && !isShotSequenceActive()) {
+            if (!isManualShooterActive()) {
+                manualShooterCommand.schedule();
+            }
+        } else if (isManualShooterActive()) {
+            manualShooterCommand.cancel();
+            if (intakeMode) {
+                shooter.stop();
+            }
         }
 
-        // === FUNNEL STATE MACHINE ===
-        // Ensures funnel fully extends/retracts before spindexer can move (collision prevention)
-        switch (funnelState) {
-            case RETRACTED:
-                // Trigger pressed and we're in shooting mode? Start extending
-                // ✅ CRITICAL: Only extend if spindexer is at position (prevents collision)
-                if (gamepad2.right_trigger > 0.5 
-                        && (currentMode == RobotMode.SHOOTING_READY || currentMode == RobotMode.MANUAL_OVERRIDE)
-                        && spindexer.isAtPosition()) {
-                    funnel.extend();
-                    funnelState = FunnelState.EXTENDING;
-                    funnelTimer = System.currentTimeMillis();
-                }
-                break;
-
-            case EXTENDING:
-                // Wait for funnel to fully extend
-                if (System.currentTimeMillis() - funnelTimer >= FUNNEL_EXTEND_TIME_MS) {
-                    funnelState = FunnelState.EXTENDED;
-                    funnelTimer = System.currentTimeMillis();
-                }
-                break;
-
-            case EXTENDED:
-                // Hold extended state for a moment before retracting
-                if (System.currentTimeMillis() - funnelTimer >= FUNNEL_HOLD_TIME_MS) {
-                    funnelState = FunnelState.RETRACTING;
-                    funnel.retract();
-                    funnelTimer = System.currentTimeMillis();
-                }
-                break;
-
-            case RETRACTING:
-                // Wait for funnel to fully retract
-                if (System.currentTimeMillis() - funnelTimer >= FUNNEL_EXTEND_TIME_MS) {
-                    funnelState = FunnelState.RETRACTED;
-                }
-                break;
+        if (gamepad2.right_trigger > 0.5
+                && currentMode == RobotMode.MANUAL_OVERRIDE
+                && spindexer.isAtPosition()
+                && !isShotSequenceActive()) {
+            scheduleFunnelPulse();
         }
 
         // Manual Spindexer (Gamepad 2 Right Stick) - Cubic Scaling for Smooth Control
         if (currentMode == RobotMode.MANUAL_OVERRIDE) {
+            if (funnel.isExtended()) {
+                // Hard interlock: never allow manual spindexer movement while funnel is out.
+                spindexer.stopManual();
+                return;
+            }
             double raw = -gamepad2.right_stick_y;
 
             // Deadband
@@ -422,13 +376,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
      * KEEPER WHEEL PATTERN: Intake always runs at low hold power, overridable by driver.
      * Priority: Reverse > Full Intake > Hold Power
      */
-    private void handleIntake() {
-        // Safety: block intake while funnel is not retracted
-        if (funnelState != FunnelState.RETRACTED) {
-            intake.setPower(0);
-            return;
-        }
-
+    private void applyIntakePower() {
         // Priority 1: Reverse (clears jams, overrides everything)
         if (gamepad2.left_bumper) {
             intake.setPower(INTAKE_REVERSE_POWER);
@@ -456,7 +404,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
         telemetry.addData("PHASE", currentMode);
         telemetry.addData("TARGET SLOT", spindexerPositionIndex + 1);
         telemetry.addData("SPINDEXER MODE", intakeMode ? "INTAKE" : "OUTTAKE");
-        telemetry.addData("FUNNEL STATE", funnelState);
+        telemetry.addData("SHOT SEQUENCE", isShotSequenceActive() ? "RUNNING" : "IDLE");
         
         AprilTagDetection bestTag = aprilTag.getBestAllianceGoalDetection();
         telemetry.addData("TAG ID", bestTag != null ? bestTag.id : "NONE");
@@ -491,5 +439,71 @@ public class RedAllianceTeleOp extends LinearOpMode {
             sb.append(c.getCharacter());
         }
         return sb.toString();
+    }
+
+    private void scheduleShotSequenceForIndex(int index) {
+        if (isShotSequenceActive()) {
+            return;
+        }
+        activeShotSequence = instant(() -> {
+            intakeMode = false;
+            currentMode = RobotMode.SHOOTING_SETUP;
+            spindexer.setIntakeMode(false);
+            spindexer.goToPositionForwardOnly(OldSpindexerSubsystem.OUTTAKE_POSITIONS[index]);
+        }).then(
+                waitUntil(spindexer::isAtPosition),
+                instant(() -> {
+                    currentMode = RobotMode.SHOOTING_READY;
+                    shooter.setTargetRPM(ShooterSubsystem.TARGET_RPM);
+                }),
+                waitUntil(() -> shooter.isAtTargetRPM()
+                        || Math.abs(shooter.getCurrentRPM() - ShooterSubsystem.TARGET_RPM) < 100),
+                instant(funnel::extend),
+                waitMs(FUNNEL_EXTEND_TIME_MS),
+                waitMs(FUNNEL_HOLD_TIME_MS),
+                instant(funnel::retract),
+                waitMs(FUNNEL_EXTEND_TIME_MS),
+                instant(() -> currentMode = RobotMode.SHOOTING_SETUP)
+        ).setEnd(endCondition -> {
+            if (intakeMode) {
+                shooter.stop();
+            }
+        }).requiring(spindexer, shooter, funnel);
+        activeShotSequence.schedule();
+    }
+
+    private void scheduleFunnelPulse() {
+        activeShotSequence = instant(funnel::extend).then(
+                waitMs(FUNNEL_EXTEND_TIME_MS),
+                waitMs(FUNNEL_HOLD_TIME_MS),
+                instant(funnel::retract),
+                waitMs(FUNNEL_EXTEND_TIME_MS)
+        ).requiring(funnel);
+        activeShotSequence.schedule();
+    }
+
+    private boolean isShotSequenceActive() {
+        return activeShotSequence != null && activeShotSequence.isScheduled();
+    }
+
+    private boolean isAlignActive() {
+        return alignCommand != null && alignCommand.isScheduled();
+    }
+
+    private boolean isManualShooterActive() {
+        return manualShooterCommand != null && manualShooterCommand.isScheduled();
+    }
+
+    private void resetToIntakeMode() {
+        intakeMode = true;
+        spindexerPositionIndex = 0;
+        spindexer.setIntakeMode(true);
+        spindexer.goToPositionForCurrentMode(0);
+        currentMode = RobotMode.INTAKE;
+        funnel.retract();
+        if (isManualShooterActive()) {
+            manualShooterCommand.cancel();
+        }
+        shooter.stop();
     }
 }
