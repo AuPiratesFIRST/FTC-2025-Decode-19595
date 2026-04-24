@@ -128,7 +128,7 @@ public class RedMultiCycleAuto extends OpMode {
             /* -------- PRELOAD -------- */
             case ALIGN_PRELOAD:
                 AimController.AlignmentResult a = aim.update();
-                drive.drive(a.strafe, a.forward, a.turn);
+                drive.drive(a.forward, a.strafe, a.turn);
                 if (a.aligned) {
                     drive.stop();
                     state = State.SPINUP_PRELOAD;
@@ -198,7 +198,7 @@ public class RedMultiCycleAuto extends OpMode {
 
             case ALIGN_FINAL:
                 AimController.AlignmentResult f = aim.update();
-                drive.drive(f.strafe, f.forward, f.turn);
+                drive.drive(f.forward, f.strafe, f.turn);
                 if (f.aligned) {
                     drive.stop();
                     state = State.SPINUP_FINAL;

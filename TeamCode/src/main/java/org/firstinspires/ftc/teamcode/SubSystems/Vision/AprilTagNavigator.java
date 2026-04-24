@@ -222,6 +222,19 @@ public class AprilTagNavigator {
     }
 
     public AprilTagDetection getBestAllianceGoalDetection() { return getBestDetection(); }
+
+    /**
+     * Returns the best (closest) detection for a specific tag ID.
+     * Used by AimController for alliance-specific goal alignment (e.g. tag 20 Blue, tag 24 Red).
+     */
+    public AprilTagDetection getBestDetectionForTag(int tagId) {
+        return aprilTag.getDetections().stream()
+                .filter(tag -> tag.id == tagId)
+                .filter(tag -> tag.ftcPose != null && tag.ftcPose.range <= MAX_DETECTION_DISTANCE)
+                .min(Comparator.comparingDouble(tag -> tag.ftcPose.range))
+                .orElse(null);
+    }
+
     public List<AprilTagDetection> getRawDetections() { return aprilTag.getDetections(); }
     public void closeVision() { if (visionPortal != null) visionPortal.close(); }
 

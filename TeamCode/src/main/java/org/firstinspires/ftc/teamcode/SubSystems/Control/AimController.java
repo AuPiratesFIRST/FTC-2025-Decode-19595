@@ -12,20 +12,13 @@ import org.firstinspires.ftc.teamcode.SubSystems.Vision.AprilTagNavigator;
 
 /**
  * UNIFIED ALIGNMENT CONTROLLER
- * 
- * Handles robot alignment using sensor fusion:
- * - AprilTag vision for X/Y position
- * - IMU gyro for rotation control
- * - Automatic fallback to IMU-only when vision fails
- * - Alliance-aware goal targeting (Blue/Red with triangular goal geometry)
- * 
- * Used by both TeleOp and Autonomous to eliminate duplication.
  *
- * Units:
- * - Heading math in this controller uses DEGREES for target angles
- * - Always read robot heading via DriveSubsystem.getHeadingDegrees()
- * - Internal subsystems (Drive/TileNavigator) keep headings in RADIANS
- *   and expose degrees via helper methods when needed for Auto/Telemetry
+ * Uses the same logic as TagChaserOp (tested and working):
+ * - Forward/back: tag.ftcPose.y vs desired distance, P control with deadband
+ * - Strafe: tag.ftcPose.x, PD control with deadband (D term reduces jitter)
+ * - Turn: tag.ftcPose.bearing, P control with deadband
+ * - Alliance-aware via targetTagId (e.g. 20 Blue, 24 Red)
+ * - When vision lost: IMU hold then IMU-only fallback
  */
 public class AimController {
 
@@ -57,25 +50,25 @@ public class AimController {
     private static final double ANGLE_BLUE = 25.0;
     private static final double ANGLE_RED = -25.5;
 
-    // === CONFIGURATION (Tunable) ===
+    // === CONFIGURATION (TagChaserOp-tuned defaults) ===
     private double desiredDistance = 134.0;
-    private double desiredAngle = 25.0; // Will be set by setAlliance()
-    private double kpStrafe = 0.03;
-    private double kpForward = 0.03;
-    private double kpRot = 0.015;
-    private double maxPower = 0.40;
-    private double posDeadband = 0.75;
-    private double angleDeadband = 1.5;
+    private double desiredAngle = 25.0;
+    private double kpForward = 0.079;   // TagChaserOp Kp
+    private double kpStrafe = 0.075;    // TagChaserOp StrafeKp
+    private double kdStrafe = 0.030;    // TagChaserOp StrafeKd (PD for strafe)
+    private double kpTurn = 0.020;      // TagChaserOp TurnKp
+    private double maxPower = 1.0;     // TagChaserOp SPEED_LIMIT
+    private double forwardDeadband = 1.0;   // TagChaserOp FORWARD_DEADBAND inches
+    private double strafeDeadband = 0.75;   // TagChaserOp STRAFE_DEADBAND inches
+    private double turnDeadband = 1.5;      // TagChaserOp TURN_DEADBAND degrees
     private double imuOnlyDeadband = 2.0;
     private int targetTagId = 24;
     private long visionLossTimeoutMs = 500;
-    
-    // === VISION SMOOTHING (Exponential Moving Average) ===
-    private double visionAlpha = 0.3;  // 30% new measurement, 70% old
-    private double lastStrafeCorrection = 0.0;
-    private double lastForwardCorrection = 0.0;
 
-    // === STATE TRACKING ===
+    // === STATE TRACKING (for Strafe D-term, same as TagChaserOp) ===
+    private double lastErrorX = 0;
+    private double lastTime = 0;
+    private ElapsedTime runtime = new ElapsedTime();
     private ElapsedTime visionLostTimer = new ElapsedTime();
     private boolean visionWasLost = false;
 
@@ -150,105 +143,101 @@ public class AimController {
 
     public void setDesiredDistance(double distance) { this.desiredDistance = distance; }
     public void setDesiredAngle(double angle) { this.desiredAngle = angle; }
-    public void setGains(double kpStrafe, double kpForward, double kpRot) {
-        this.kpStrafe = kpStrafe;
+    /** Sets P gains: forward, strafe, turn (TagChaserOp: 0.079, 0.075, 0.020) */
+    public void setGains(double kpForward, double kpStrafe, double kpTurn) {
         this.kpForward = kpForward;
-        this.kpRot = kpRot;
+        this.kpStrafe = kpStrafe;
+        this.kpTurn = kpTurn;
     }
+    /** Sets strafe D gain (TagChaserOp: 0.030) for PD control. */
+    public void setStrafeKd(double kdStrafe) { this.kdStrafe = kdStrafe; }
     public void setMaxPower(double maxPower) { this.maxPower = maxPower; }
-    public void setDeadbands(double pos, double angle, double imuOnly) {
-        this.posDeadband = pos;
-        this.angleDeadband = angle;
-        this.imuOnlyDeadband = imuOnly;
+    /** Deadbands: forward (in), strafe (in), turn (deg). TagChaserOp: 1.0, 0.75, 1.5 */
+    public void setDeadbands(double forwardDb, double strafeDb, double turnDb) {
+        this.forwardDeadband = forwardDb;
+        this.strafeDeadband = strafeDb;
+        this.turnDeadband = turnDb;
     }
     public void setTargetTagId(int tagId) { this.targetTagId = tagId; }
     public void setVisionLossTimeout(long timeoutMs) { this.visionLossTimeoutMs = timeoutMs; }
-    public void setVisionSmoothing(double alpha) { this.visionAlpha = alpha; }
 
-    // === MAIN UPDATE METHOD ===
+    // === MAIN UPDATE METHOD (TagChaserOp logic) ===
     /**
-     * Calculates alignment corrections for the robot.
-     * Call this every loop when alignment is desired.
-     * 
-     * @return AlignmentResult containing drive commands and status
+     * Calculates alignment corrections using the same math as TagChaserOp.
+     * Returns (forward, strafe, turn) for drive(forward, strafe, turn).
      */
     public AlignmentResult update() {
-        
-        // === PHASE 1: CHECK VISION ===
-        boolean tagSeen = aprilTag.updateRobotPositionFromAllianceGoals();
-        AprilTagDetection tag = aprilTag.getBestAllianceGoalDetection();
+        AprilTagDetection tag = aprilTag.getBestDetectionForTag(targetTagId);
 
-        if (tagSeen && tag != null && tag.id == targetTagId) {
-            // Vision active - reset timer
+        if (tag != null && tag.ftcPose != null) {
             visionLostTimer.reset();
             visionWasLost = false;
 
-            // === PHASE 2: VISION + IMU FUSION ===
-            double[] corrections = aprilTag.calculateAlignmentCorrections(
-                    tag,
-                    desiredDistance,
-                    desiredAngle,
-                    posDeadband,
-                    posDeadband,
-                    0,              // dbAngle = 0 (IMU handles rotation)
-                    kpStrafe,
-                    kpForward,
-                    0,              // kPR = 0 (IMU controls turn)
-                    maxPower
-            );
+            double currentTime = runtime.seconds();
+            double deltaTime = currentTime - lastTime;
 
-            if (corrections != null) {
-                // Calculate IMU-based rotation
-                double currentHeading = drive.getHeadingDegrees(); // Use getHeadingDegrees() when working with degrees
-                double angleError = AngleUnit.normalizeDegrees(desiredAngle - currentHeading);
-                double turnPower = Range.clip(angleError * kpRot, -maxPower, maxPower);
-
-                // Apply exponential moving average to vision corrections (reduce jitter)
-                double smoothedStrafe = visionAlpha * corrections[1] + (1.0 - visionAlpha) * lastStrafeCorrection;
-                double smoothedForward = visionAlpha * corrections[0] + (1.0 - visionAlpha) * lastForwardCorrection;
-                lastStrafeCorrection = smoothedStrafe;
-                lastForwardCorrection = smoothedForward;
-
-                // Check if aligned
-                boolean aligned = Math.abs(angleError) < angleDeadband &&
-                                Math.abs(smoothedStrafe) < 0.05 &&
-                                Math.abs(smoothedForward) < 0.05;
-
-                if (aligned) {
-                    return new AlignmentResult(0, 0, 0, true, AlignmentMode.ALIGNED);
-                }
-
-                return new AlignmentResult(smoothedStrafe, smoothedForward, turnPower, false, AlignmentMode.VISION_FUSION);
+            // --- 1. FORWARD/BACK (TagChaserOp: errory, Kp, deadband) ---
+            double errory = tag.ftcPose.y - desiredDistance;
+            double driveForward = 0;
+            if (Math.abs(errory) > forwardDeadband) {
+                driveForward = errory * kpForward;
             }
+
+            // --- 2. STRAFE PD (TagChaserOp: errorx, StrafeKp, StrafeKd, deadband) ---
+            double errorx = tag.ftcPose.x;
+            double driveStrafe = 0;
+            if (Math.abs(errorx) > strafeDeadband) {
+                double pTermX = errorx * kpStrafe;
+                double dTermX = (deltaTime > 0) ? ((errorx - lastErrorX) / deltaTime) * kdStrafe : 0;
+                driveStrafe = pTermX + dTermX;
+            }
+
+            // --- 3. ROTATION (TagChaserOp: bearing, TurnKp, deadband) ---
+            double errorRot = tag.ftcPose.bearing;
+            double driveTurn = 0;
+            if (Math.abs(errorRot) > turnDeadband) {
+                driveTurn = errorRot * kpTurn;
+            }
+
+            lastErrorX = errorx;
+            lastTime = currentTime;
+
+            double forward = Range.clip(driveForward, -maxPower, maxPower);
+            double strafe = Range.clip(driveStrafe, -maxPower, maxPower);
+            double turn = Range.clip(driveTurn, -maxPower, maxPower);
+
+            boolean aligned = Math.abs(errory) <= forwardDeadband
+                    && Math.abs(errorx) <= strafeDeadband
+                    && Math.abs(errorRot) <= turnDeadband;
+
+            if (aligned) {
+                return new AlignmentResult(0, 0, 0, true, AlignmentMode.ALIGNED);
+            }
+            return new AlignmentResult(strafe, forward, turn, false, AlignmentMode.VISION_FUSION);
         }
 
-        // === PHASE 3: VISION LOST - IMU HOLD OR IMU-ONLY ===
+        // === VISION LOST: IMU hold then IMU-only ===
         if (!visionWasLost) {
             visionLostTimer.reset();
             visionWasLost = true;
         }
+        lastErrorX = 0;
+        lastTime = runtime.seconds();
 
-        double currentHeading = drive.getHeadingDegrees(); // Use getHeadingDegrees() when working with degrees
-        double angleError = AngleUnit.normalizeDegrees(desiredAngle - currentHeading);
-        double turnPower = Range.clip(angleError * kpRot, -maxPower, maxPower);
+        double angleError = AngleUnit.normalizeDegrees(desiredAngle - drive.getHeadingDegrees());
+        double turnPower = Range.clip(angleError * kpTurn, -maxPower, maxPower);
 
-        // Still within timeout window? Hold angle (IMU_HOLD mode)
         if (visionLostTimer.milliseconds() < visionLossTimeoutMs) {
             return new AlignmentResult(0, 0, turnPower, false, AlignmentMode.IMU_HOLD);
         }
-
-        // === PHASE 4: IMU-ONLY FALLBACK ===
-        // Vision completely lost - actively rotate to target angle
         if (Math.abs(angleError) <= imuOnlyDeadband) {
             return new AlignmentResult(0, 0, 0, true, AlignmentMode.ALIGNED);
         }
-
         return new AlignmentResult(0, 0, turnPower, false, AlignmentMode.IMU_ONLY);
     }
 
-    // === UTILITY: Reset smoothing filters ===
     public void resetSmoothing() {
-        lastStrafeCorrection = 0.0;
-        lastForwardCorrection = 0.0;
+        lastErrorX = 0;
+        lastTime = runtime.seconds();
     }
 }

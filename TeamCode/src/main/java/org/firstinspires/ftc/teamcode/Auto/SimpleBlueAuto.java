@@ -65,12 +65,12 @@ public class SimpleBlueAuto extends OpMode {
         aimController = new AimController(aprilTag, drive, telemetry);
         aimController.setDesiredDistance(134);
         aimController.setDesiredAngle(21);
-        aimController.setGains(0.03, 0.03, 0.015);
+        aimController.setGains(0.079, 0.075, 0.020);  // TagChaserOp-tuned
+        aimController.setStrafeKd(0.030);
         aimController.setMaxPower(0.40);
-        aimController.setDeadbands(0.75, 1.5, 2.0);
+        aimController.setDeadbands(1.0, 0.75, 1.5);
         aimController.setTargetTagId(24);
         aimController.setVisionLossTimeout(500);
-        aimController.setVisionSmoothing(0.3);
 
         telemetry.addLine("Blue Auto – 3 Shot Preload Initialized");
     }
@@ -109,7 +109,7 @@ public class SimpleBlueAuto extends OpMode {
 
             case ALIGN:
                 AimController.AlignmentResult align = aimController.update();
-                drive.drive(align.strafe, align.forward, align.turn);
+                drive.drive(align.forward, align.strafe, align.turn);
 
                 if (align.aligned) {
                     drive.stop();
