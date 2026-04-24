@@ -3,6 +3,8 @@ package org.firstinspires.ftc.teamcode.Auto;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.util.ElapsedTime;
+import com.pedropathing.ivy.Command;
+import com.pedropathing.ivy.Scheduler;
 
 import org.firstinspires.ftc.teamcode.SubSystems.Control.AimController;
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
@@ -71,6 +73,7 @@ public class RedMultiCycleAuto extends OpMode {
 
     State state = State.ALIGN_PRELOAD;
     FunnelState funnelState = FunnelState.RETRACTED;
+    private Command autoLoopCommand;
 
     int shotIndex = 0;
     int intakeIndex = 0;
@@ -80,6 +83,7 @@ public class RedMultiCycleAuto extends OpMode {
     /* ================= INIT ================= */
     @Override
     public void init() {
+        Scheduler.reset();
         drive = new DriveSubsystem(hardwareMap, telemetry);
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
         intake = new IntakeSubsystem(hardwareMap, telemetry);
@@ -104,12 +108,30 @@ public class RedMultiCycleAuto extends OpMode {
         intake.setPower(INTAKE_HOLD_POWER);
         stateTimer.reset();
         initialHeading = drive.getHeadingDegrees(); // Store original heading in DEGREES for return-to-zero
+        autoLoopCommand = Command.build()
+                .setExecute(this::runAutoStep)
+                .setDone(() -> state == State.DONE)
+                .setEnd(endCondition -> {
+                    drive.stop();
+                    shooter.stop();
+                });
+        Scheduler.schedule(autoLoopCommand);
     }
 
     /* ================= LOOP ================= */
     @Override
     public void loop() {
+        Scheduler.execute();
+        telemetry.addData("STATE", state);
+        telemetry.addData("SHOT", shotIndex);
+        telemetry.addData("RPM", shooter.getCurrentRPM());
+        telemetry.addData("FUNNEL", funnelState);
+        telemetry.addData("Spindexer Safe", funnelState == FunnelState.RETRACTED ? "YES" : "NO");
+        telemetry.addData("Start Tile", "D1");
+        telemetry.update();
+    }
 
+    private void runAutoStep() {
         spindexer.update();
         shooter.updateVoltageCompensation();
         intake.setPower(INTAKE_HOLD_POWER);
@@ -241,14 +263,6 @@ public class RedMultiCycleAuto extends OpMode {
                 shooter.stop();
                 break;
         }
-
-        telemetry.addData("STATE", state);
-        telemetry.addData("SHOT", shotIndex);
-        telemetry.addData("RPM", shooter.getCurrentRPM());
-        telemetry.addData("FUNNEL", funnelState);
-        telemetry.addData("Spindexer Safe", funnelState == FunnelState.RETRACTED ? "YES" : "NO");
-        telemetry.addData("Start Tile", "D1");
-        telemetry.update();
     }
 
     /* ================= SHOOTER ================= */

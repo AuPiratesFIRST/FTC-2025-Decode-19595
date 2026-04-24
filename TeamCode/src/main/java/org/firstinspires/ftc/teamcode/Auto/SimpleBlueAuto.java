@@ -3,6 +3,8 @@ package org.firstinspires.ftc.teamcode.Auto;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.util.ElapsedTime;
+import com.pedropathing.ivy.Command;
+import com.pedropathing.ivy.Scheduler;
 
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.SubSystems.Shooter.ShooterSubsystem;
@@ -49,9 +51,11 @@ public class SimpleBlueAuto extends OpMode {
     // --- Auto states ---
     private enum State { ALIGN, SPIN_UP, FIRE, RETURN_TO_ZERO, DONE }
     private State state = State.ALIGN;
+    private Command autoLoopCommand;
 
     @Override
     public void init() {
+        Scheduler.reset();
         drive = new DriveSubsystem(hardwareMap, telemetry);
         shooter = new ShooterSubsystem(hardwareMap, telemetry);
         intake = new IntakeSubsystem(hardwareMap, telemetry);
@@ -85,11 +89,31 @@ public class SimpleBlueAuto extends OpMode {
 
         // ✅ Start intake hold immediately
         intake.setPower(INTAKE_HOLD_POWER);
+
+        autoLoopCommand = Command.build()
+                .setExecute(this::runAutoStep)
+                .setDone(() -> state == State.DONE)
+                .setEnd(endCondition -> {
+                    drive.stop();
+                    shooter.stop();
+                });
+        Scheduler.schedule(autoLoopCommand);
     }
 
     @Override
     public void loop() {
+        Scheduler.execute();
+        telemetry.addData("STATE", state);
+        telemetry.addData("SHOT", shotIndex);
+        telemetry.addData("INTAKE", "HOLDING");
+        telemetry.addData("SHOOTER RPM", "%.0f / %.0f",
+                shooter.getCurrentRPM(), shooter.getTargetRPM());
+        telemetry.addData("FUNNEL", funnelState);
+        telemetry.addData("Spindexer Safe", funnelState == FunnelState.RETRACTED ? "YES" : "NO");
+        telemetry.update();
+    }
 
+    private void runAutoStep() {
         // ✅ ALWAYS hold balls in spindexer
         intake.setPower(INTAKE_HOLD_POWER);
 
@@ -99,14 +123,13 @@ public class SimpleBlueAuto extends OpMode {
         // === Auto-trigger return-to-zero in last N seconds ===
         double elapsed = stateTimer.seconds();
         double remaining = AUTONOMOUS_DURATION - elapsed;
-        
-        if (returnToZeroEnabled && remaining <= returnToZeroTime 
+
+        if (returnToZeroEnabled && remaining <= returnToZeroTime
                 && state != State.DONE && state != State.RETURN_TO_ZERO) {
             state = State.RETURN_TO_ZERO;
         }
 
         switch (state) {
-
             case ALIGN:
                 AimController.AlignmentResult align = aimController.update();
                 drive.drive(align.forward, align.strafe, align.turn);
@@ -209,14 +232,5 @@ public class SimpleBlueAuto extends OpMode {
                 intake.setPower(INTAKE_HOLD_POWER); // still hold balls
                 break;
         }
-
-        telemetry.addData("STATE", state);
-        telemetry.addData("SHOT", shotIndex);
-        telemetry.addData("INTAKE", "HOLDING");
-        telemetry.addData("SHOOTER RPM", "%.0f / %.0f",
-                shooter.getCurrentRPM(), shooter.getTargetRPM());
-        telemetry.addData("FUNNEL", funnelState);
-        telemetry.addData("Spindexer Safe", funnelState == FunnelState.RETRACTED ? "YES" : "NO");
-        telemetry.update();
     }
 }

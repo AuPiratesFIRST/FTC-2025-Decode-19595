@@ -2,9 +2,8 @@ package org.firstinspires.ftc.teamcode.TeleOp;
 
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
-import com.qualcomm.robotcore.util.ElapsedTime;
-import com.qualcomm.robotcore.util.Range;
-import org.firstinspires.ftc.robotcore.external.JavaUtil;
+import com.pedropathing.ivy.Command;
+import com.pedropathing.ivy.Scheduler;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 
 import org.firstinspires.ftc.teamcode.SubSystems.Drive.DriveSubsystem;
@@ -116,9 +115,11 @@ public class RedAllianceTeleOp extends LinearOpMode {
     // === OBELISK MOTIF TRACKING ===
     private ArtifactColor[] lockedMotif = null; // Locked at start, holds motif for entire match
     private int lockedMotifTagId = -1; // Locked obelisk tag ID
+    private Command teleOpLoopCommand;
 
     @Override
     public void runOpMode() {
+        Scheduler.reset();
         // Initialize subsystems
         drive = new DriveSubsystem(hardwareMap, telemetry);
         intake = new IntakeSubsystem(hardwareMap, telemetry);
@@ -177,54 +178,19 @@ public class RedAllianceTeleOp extends LinearOpMode {
         }
         telemetry.update();
 
+        teleOpLoopCommand = Command.build()
+                .setExecute(this::runTeleOpStep)
+                .setDone(() -> !opModeIsActive())
+                .setEnd(endCondition -> {
+                    drive.stop();
+                    intake.stop();
+                    shooter.stop();
+                    funnel.retract();
+                });
+        Scheduler.schedule(teleOpLoopCommand);
+
         while (opModeIsActive()) {
-            shooter.updateVoltageCompensation();
-
-            // 1. MANUAL OVERRIDE TOGGLE
-            if (gamepad2.x && !lastInputX) {
-                if (currentMode == RobotMode.MANUAL_OVERRIDE) currentMode = RobotMode.INTAKE;
-                else {
-                    currentMode = RobotMode.MANUAL_OVERRIDE;
-                    spindexer.lockCurrentPosition();
-                }
-            }
-            lastInputX = gamepad2.x;
-
-            // 1.5 INTAKE/OUTTAKE MODE TOGGLE (D-Pad Left)
-            if (gamepad2.dpad_left && !lastInputDpadLeft) {
-                boolean wasIntakeMode = intakeMode;
-                intakeMode = !intakeMode;
-                spindexer.setIntakeMode(intakeMode);
-                // Reset to position 0 in the new mode
-                spindexerPositionIndex = 0;
-                
-                // Always use forward-only movement (goToPositionForCurrentMode now always goes forward)
-                spindexer.goToPositionForCurrentMode(0);
-                
-                if (intakeMode) {
-                    currentMode = RobotMode.INTAKE;
-                }
-            }
-            lastInputDpadLeft = gamepad2.dpad_left;
-
-            // 2. STATE MACHINE TRANSITIONS
-            if (currentMode != RobotMode.MANUAL_OVERRIDE) {
-                handleCircularTransitions();
-            }
-
-            // 3. DRIVE & AUTO-ALIGNMENT
-            handleDriveAndAlignment();
-
-            // 3.5 INTAKE CONTROL (Keeper Wheel Pattern)
-            handleIntake();
-
-            // 4. HARDWARE COMMANDS
-            executeHardwareActions();
-
-            // ✅ ALWAYS RUN PID: Keeps "Active Hold" working to resist external force
-            spindexer.update();
-
-            // 5. TELEMETRY
+            Scheduler.execute();
             updateTelemetry();
         }
 
@@ -234,6 +200,39 @@ public class RedAllianceTeleOp extends LinearOpMode {
         shooter.stop();
         funnel.retract(); // Retract funnels on stop
         aprilTag.closeVision();
+    }
+
+    private void runTeleOpStep() {
+        shooter.updateVoltageCompensation();
+
+        if (gamepad2.x && !lastInputX) {
+            if (currentMode == RobotMode.MANUAL_OVERRIDE) currentMode = RobotMode.INTAKE;
+            else {
+                currentMode = RobotMode.MANUAL_OVERRIDE;
+                spindexer.lockCurrentPosition();
+            }
+        }
+        lastInputX = gamepad2.x;
+
+        if (gamepad2.dpad_left && !lastInputDpadLeft) {
+            intakeMode = !intakeMode;
+            spindexer.setIntakeMode(intakeMode);
+            spindexerPositionIndex = 0;
+            spindexer.goToPositionForCurrentMode(0);
+
+            if (intakeMode) {
+                currentMode = RobotMode.INTAKE;
+            }
+        }
+        lastInputDpadLeft = gamepad2.dpad_left;
+
+        if (currentMode != RobotMode.MANUAL_OVERRIDE) {
+            handleCircularTransitions();
+        }
+        handleDriveAndAlignment();
+        handleIntake();
+        executeHardwareActions();
+        spindexer.update();
     }
 
     private void handleCircularTransitions() {
