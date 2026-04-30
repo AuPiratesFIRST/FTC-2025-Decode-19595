@@ -148,7 +148,14 @@ public class OldSpindexerTest extends LinearOpMode {
         telemetryM.addData("Mode", manualMode ? "MANUAL" : "ACTIVE HOLD");
         telemetryM.addData("Graph_Current", currentPosition);
         telemetryM.addData("Graph_Target", targetPosition);
+        telemetryM.addData("Graph_ProfileTarget", spindexer.getProfiledTargetPosition());
         telemetryM.addData("Graph_Error", error);
+        telemetryM.addData("Graph_ProfileVel", spindexer.getProfileVelocity());
+        telemetryM.addData("Graph_ProfileAccel", spindexer.getProfileAcceleration());
+        telemetryM.addData("Graph_Output", spindexer.getLastControlOutput());
+        telemetryM.addData("Graph_FF_kS", spindexer.getLastStaticFrictionFF());
+        telemetryM.addData("Graph_FF_kG", spindexer.getLastGravityFF());
+        telemetryM.addData("Graph_FF_kVA", spindexer.getLastDynamicFF());
 
         // Track the PID values on the graph to see how they affect stability
         telemetryM.addData("Graph_kP", pidCoefficients[0]);

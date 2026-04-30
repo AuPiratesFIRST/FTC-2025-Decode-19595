@@ -23,13 +23,13 @@ public class OldSpindexerSubsystem {
     // COMPETITION TUNED COEFFICIENTS - Aggressive "Lockdown" Tuning
     // Base coefficients for empty (intake) mode
     private static final double kP_EMPTY = 0.02350000000000001;     // High P for immediate reaction
-    private static final double kI_EMPTY = 0.00038000000000000035;   // I builds up the "Active Hold" force
-    private static final double kD_EMPTY = 0.01059999999999999;    // D prevents high-speed shaking
+    private static final double kI_EMPTY = 0;   // I builds up the "Active Hold" force
+    private static final double kD_EMPTY = 0;    // D prevents high-speed shaking
     
     // Enhanced coefficients for loaded (outtake) mode - prevents sag under load
     private static final double kP_LOADED = 0.035;   // ~1.5× boost for faster response under load
-    private static final double kI_LOADED = 0.0005;  // Slightly higher integral for steady hold
-    private static final double kD_LOADED = 0.012;   // Increased damping to prevent overshoot
+    private static final double kI_LOADED = 0;  // Slightly higher integral for steady hold
+    private static final double kD_LOADED = 0;   // Increased damping to prevent overshoot
     
     // Active coefficients (dynamically selected based on mode)
     private double kP = kP_EMPTY;
@@ -44,10 +44,30 @@ public class OldSpindexerSubsystem {
     private static final int POSITION_TOLERANCE = 8; // Tighter tolerance for accuracy
     private static final double SPEED_MULTIPLIER = 0.2; // Increased from 0.35 for better response
     private static final double GRAVITY_FEEDFORWARD = 0.08; // 8% power to counter gravity in vertical spindexer
+    private static final double kS = 0.05; // Static friction compensation (replaces hardcoded nudge)
+    private static final double kV = 0.0002; // Velocity feedforward (ticks/sec -> power)
+    private static final double kA = 0.00002; // Acceleration feedforward (ticks/sec^2 -> power)
+    private static final double GRAVITY_DIRECTION_ERROR_DEADBAND = 4.0; // ticks, avoids sign chatter near target
+    private static final double GRAVITY_DIRECTION_VELOCITY_DEADBAND = 20.0; // ticks/sec
+
+    // Motion profile constraints (ticks domain)
+    private static final boolean MOTION_PROFILE_ENABLED = true;
+    private static final double MAX_PROFILE_VELOCITY = 900.0;      // ticks/sec
+    private static final double MAX_PROFILE_ACCELERATION = 2200.0; // ticks/sec^2
 
     private boolean pidEnabled = false;
     private boolean tuningMode = false;
     private boolean intakeMode = true;
+    private double profiledTargetPosition = 0.0;
+    private double profileVelocity = 0.0;
+    private double lastProfileVelocity = 0.0;
+    private long lastUpdateNanos = 0L;
+    private double gravityDirectionSign = 1.0;
+    private double lastFinalOutput = 0.0;
+    private double lastProfileAcceleration = 0.0;
+    private double lastStaticFrictionFF = 0.0;
+    private double lastGravityFF = 0.0;
+    private double lastDynamicFF = 0.0;
 
     public enum SpindexerPosition {
         POSITION_1(10), POSITION_2(215), POSITION_3(392);
@@ -89,7 +109,18 @@ public class OldSpindexerSubsystem {
         }
 
         int currentPosition = spindexerMotor.getCurrentPosition();
-        double error = shortestError(targetPosition, currentPosition);
+        long now = System.nanoTime();
+        double dtSec = lastUpdateNanos == 0L ? 0.02 : Math.max(0.001, (now - lastUpdateNanos) / 1_000_000_000.0);
+        lastUpdateNanos = now;
+
+        if (!MOTION_PROFILE_ENABLED) {
+            profiledTargetPosition = targetPosition;
+            profileVelocity = 0.0;
+        } else {
+            updateMotionProfile(dtSec);
+        }
+
+        double error = shortestError(profiledTargetPosition, currentPosition);
 
         // LOCKDOWN: We no longer stop at the deadband.
         // The motor stays active to "Pre-load" the gears and fight back.
@@ -105,31 +136,42 @@ public class OldSpindexerSubsystem {
         // Anti-windup: limit hold force to 40% motor power to prevent over-stalling
         integralSum = Range.clip(integralSum, -0.4 / (kI + 1e-9), 0.4 / (kI + 1e-9));
 
-        double derivative = (error - lastError) * kD;
+        double derivative = ((error - lastError) / dtSec) * kD;
         lastError = error;
 
         double output = (error * kP) + (integralSum * kI) + derivative;
 
-        // FEEDFORWARD NUDGE: Overcomes gear stiction/friction
-        // If we are slightly off, apply a 5% nudge to force it to the exact tick.
-        if (Math.abs(error) > 1 && Math.abs(output) < 0.05) {
-            output = Math.signum(error) * 0.05;
+        // kS static friction feedforward
+        double staticFrictionFF = 0;
+        if (Math.abs(error) > 1) {
+            staticFrictionFF = Math.signum(error) * kS;
         }
 
         // GRAVITY FEEDFORWARD: For vertical spindexer, add constant force to counter gravity
         // This helps prevent sag when loaded (outtake mode) without waiting for PID to react
-        double feedforward = 0;
+        double gravityFF = 0;
         if (!intakeMode) {
-            // Outtake mode = loaded, apply feedforward to hold against gravity
-            feedforward = GRAVITY_FEEDFORWARD;
-            // If moving downward (target below current), assist the movement
-            if (error < 0) {
-                feedforward = -feedforward;
+            // Keep gravity direction stable near zero error to avoid buzzing/hunting.
+            if (Math.abs(profileVelocity) > GRAVITY_DIRECTION_VELOCITY_DEADBAND) {
+                gravityDirectionSign = Math.signum(profileVelocity);
+            } else if (Math.abs(error) > GRAVITY_DIRECTION_ERROR_DEADBAND) {
+                gravityDirectionSign = Math.signum(error);
             }
+            gravityFF = GRAVITY_FEEDFORWARD * gravityDirectionSign;
         }
 
-        // Combine PID output with feedforward
-        double finalOutput = output + feedforward;
+        // Velocity/acceleration feedforward from profiled motion
+        double profileAcceleration = (profileVelocity - lastProfileVelocity) / dtSec;
+        lastProfileVelocity = profileVelocity;
+        double dynamicFF = (kV * profileVelocity) + (kA * profileAcceleration);
+
+        // Combine PID output with feedforward terms
+        double finalOutput = output + staticFrictionFF + gravityFF + dynamicFF;
+        lastProfileAcceleration = profileAcceleration;
+        lastStaticFrictionFF = staticFrictionFF;
+        lastGravityFF = gravityFF;
+        lastDynamicFF = dynamicFF;
+        lastFinalOutput = finalOutput;
         spindexerMotor.setPower(Range.clip(finalOutput, -1.0, 1.0) * SPEED_MULTIPLIER);
     }
 
@@ -153,8 +195,12 @@ public class OldSpindexerSubsystem {
     public void updateTelemetry() {
         if (telemetry == null) return;
         telemetry.addData("Spindexer Target", targetPosition);
+        telemetry.addData("Spindexer Profiled Target", "%.1f", profiledTargetPosition);
         telemetry.addData("Spindexer Current", spindexerMotor.getCurrentPosition());
         telemetry.addData("Hold Power", "%.2f", spindexerMotor.getPower());
+        telemetry.addData("FF Breakdown", "S:%.2f, G:%.2f, V/A:%.2f", 
+    getLastStaticFrictionFF(), getLastGravityFF(), getLastDynamicFF());
+        telemetry.addData("Profile Vel", "%.2f", getProfileVelocity());
     }
 
     public void goToPosition(int index) {
@@ -249,6 +295,10 @@ public class OldSpindexerSubsystem {
         lastError = 0;
         integralSum = 0;
         hasPrevError = false;
+        profileVelocity = 0.0;
+        lastProfileVelocity = 0.0;
+        profiledTargetPosition = spindexerMotor.getCurrentPosition();
+        lastUpdateNanos = System.nanoTime();
     }
 
     public boolean isAtPosition() {
@@ -269,10 +319,51 @@ public class OldSpindexerSubsystem {
         return raw;
     }
 
+    public double shortestError(double target, double current) {
+        double nTarget = normalizeTicks(target);
+        double nCurrent = normalizeTicks(current);
+        double raw = nTarget - nCurrent;
+        if (raw > TICKS_PER_REVOLUTION / 2.0) raw -= TICKS_PER_REVOLUTION;
+        if (raw < -TICKS_PER_REVOLUTION / 2.0) raw += TICKS_PER_REVOLUTION;
+        return raw;
+    }
+
     public int normalizeTicks(int ticks) {
         int normalized = ticks % (int) TICKS_PER_REVOLUTION;
         if (normalized < 0) normalized += (int) TICKS_PER_REVOLUTION;
         return normalized;
+    }
+
+    public double normalizeTicks(double ticks) {
+        double normalized = ticks % TICKS_PER_REVOLUTION;
+        if (normalized < 0) normalized += TICKS_PER_REVOLUTION;
+        return normalized;
+    }
+
+    private void updateMotionProfile(double dtSec) {
+        double positionErrorToGoal = shortestError(targetPosition, profiledTargetPosition);
+        double direction = Math.signum(positionErrorToGoal);
+        double stoppingDistance = (profileVelocity * profileVelocity) / (2.0 * MAX_PROFILE_ACCELERATION);
+
+        double desiredVelocity;
+        if (Math.abs(positionErrorToGoal) <= stoppingDistance) {
+            desiredVelocity = 0.0;
+        } else {
+            desiredVelocity = direction * MAX_PROFILE_VELOCITY;
+        }
+
+        double maxDeltaV = MAX_PROFILE_ACCELERATION * dtSec;
+        double velocityDelta = desiredVelocity - profileVelocity;
+        velocityDelta = Range.clip(velocityDelta, -maxDeltaV, maxDeltaV);
+        profileVelocity += velocityDelta;
+
+        double step = profileVelocity * dtSec;
+        if (Math.abs(step) > Math.abs(positionErrorToGoal)) {
+            step = positionErrorToGoal;
+            profileVelocity = 0.0;
+        }
+
+        profiledTargetPosition = normalizeTicks(profiledTargetPosition + step);
     }
 
         public void stopManual() {
@@ -301,6 +392,13 @@ public class OldSpindexerSubsystem {
     public boolean isSettling() { return false; }
     public int getCurrentPosition() { return spindexerMotor.getCurrentPosition(); }
     public int getTargetPosition() { return targetPosition; }
+    public double getProfiledTargetPosition() { return profiledTargetPosition; }
+    public double getProfileVelocity() { return profileVelocity; }
+    public double getProfileAcceleration() { return lastProfileAcceleration; }
+    public double getLastControlOutput() { return lastFinalOutput; }
+    public double getLastStaticFrictionFF() { return lastStaticFrictionFF; }
+    public double getLastGravityFF() { return lastGravityFF; }
+    public double getLastDynamicFF() { return lastDynamicFF; }
     public void setManualPower(double power) { pidEnabled = false; spindexerMotor.setPower(power); }
     public void rotateToMotifStartPosition(ArtifactColor[] motif) { goToPositionForCurrentMode(0); }
     public static double getRecommendedManualPowerMultiplier() { return 0.75; }

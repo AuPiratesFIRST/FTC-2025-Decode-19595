@@ -26,11 +26,11 @@ public class SpindexerAutoTune extends LinearOpMode {
     private double bestP = STARTING_P, bestD = STARTING_D, bestI = 0.0001;
     private double currentP = STARTING_P, currentD = STARTING_D, currentI = 0.0;
 
-    private static final double P_MIN = 0.002, P_MAX = 0.015;
+    private static final double P_MIN = 0.002, P_MAX = 0.025;
     private double pLow = P_MIN, pHigh = P_MAX;
     private boolean pInBinarySearch = false;
 
-    private static final double D_MIN = 0.0001, D_MAX = 0.005;
+    private static final double D_MIN = 0.0001, D_MAX = 0.010;
     private double dLow = D_MIN, dHigh = D_MAX;
     private boolean dInBinarySearch = false;
 
@@ -296,6 +296,17 @@ public class SpindexerAutoTune extends LinearOpMode {
         telemetryM.addData("PHASE", currentPhase);
         telemetryM.addData("Target Position", spindexer.getTargetPosition());
         telemetryM.addData("Current Position", spindexer.getCurrentPosition());
+        telemetryM.addData("Graph_Current", spindexer.getCurrentPosition());
+        telemetryM.addData("Graph_Target", spindexer.getTargetPosition());
+        telemetryM.addData("Graph_ProfileTarget", spindexer.getProfiledTargetPosition());
+        telemetryM.addData("Graph_Error",
+                spindexer.shortestError(spindexer.getTargetPosition(), spindexer.getCurrentPosition()));
+        telemetryM.addData("Graph_ProfileVel", spindexer.getProfileVelocity());
+        telemetryM.addData("Graph_ProfileAccel", spindexer.getProfileAcceleration());
+        telemetryM.addData("Graph_Output", spindexer.getLastControlOutput());
+        telemetryM.addData("Graph_FF_kS", spindexer.getLastStaticFrictionFF());
+        telemetryM.addData("Graph_FF_kG", spindexer.getLastGravityFF());
+        telemetryM.addData("Graph_FF_kVA", spindexer.getLastDynamicFF());
 
         // Use String.format to bypass TelemetryManager format limitations
         telemetryM.addData("Current P", String.format("%.5f", currentP));
