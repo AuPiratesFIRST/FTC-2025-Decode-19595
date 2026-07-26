@@ -19,7 +19,7 @@ import static com.pedropathing.ivy.commands.Commands.*;
 
 /**
  * Red Alliance TeleOp with AprilTag alignment and automated scoring sequence.
- * 
+ *
  * Gamepad 1 (Driver):
  * - Left Stick Y: Forward/backward
  * - Left Stick X: Strafe left/right
@@ -27,7 +27,7 @@ import static com.pedropathing.ivy.commands.Commands.*;
  * - Right Stick Y: Diagonal forward/backward (adds to forward movement)
  * - A/B: Drive speed toggle (1.0 / 0.5)
  * - D-Pad Up: Toggle inverse direction (for when controller is at back of robot)
- * 
+ *
  * Gamepad 2 (Operator):
  * - Left Trigger: Intake forward
  * - Left Bumper: Intake reverse
@@ -40,7 +40,7 @@ import static com.pedropathing.ivy.commands.Commands.*;
  * - D-Pad Right: Manual spindexer position increment (when in manual mode)
  * - Right Stick Y: Manual spindexer power control (when in manual mode)
  * - Y Button: Align to Red Alliance goal (Tag 24)
- * 
+ *
  * Automated Sequence:
  * - INTAKE: Move spindexer → Wait for position → Ball settling → Ready
  * - OUTTAKE: Move spindexer → Wait for position → Spin up shooter → Wait for RPM → Ready
@@ -262,7 +262,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
         }
         lastInputB = gamepad2.b;
 
-        if (gamepad2.a && !lastInputA && !intakeMode && !isShotSequenceActive()) {
+        if (gamepad2.a && !lastInputA && !isShotSequenceActive()) {
             spindexerPositionIndex++;
             if (spindexerPositionIndex > 2) {
                 resetToIntakeMode();
@@ -302,7 +302,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
         turn /= max;
 
         drive.drive(forward * driveSpeed, strafe * driveSpeed, turn * driveSpeed);
-        
+
         if (gamepad1.start) drive.resetHeading();
     }
 
@@ -400,24 +400,24 @@ public class RedAllianceTeleOp extends LinearOpMode {
         telemetry.addLine("D↓ = Reset | D← = Toggle Mode | RB = Spin");
         telemetry.addLine("RT = Shoot | LT = Intake | LB = Reverse");
         telemetry.addLine();
-        
+
         telemetry.addData("PHASE", currentMode);
         telemetry.addData("TARGET SLOT", spindexerPositionIndex + 1);
         telemetry.addData("SPINDEXER MODE", intakeMode ? "INTAKE" : "OUTTAKE");
         telemetry.addData("SHOT SEQUENCE", isShotSequenceActive() ? "RUNNING" : "IDLE");
-        
+
         AprilTagDetection bestTag = aprilTag.getBestAllianceGoalDetection();
         telemetry.addData("TAG ID", bestTag != null ? bestTag.id : "NONE");
         telemetry.addData("TAG RANGE", bestTag != null ? String.format("%.2f in", bestTag.ftcPose.range) : "N/A");
-        
+
         telemetry.addData("SHOOTER RPM", "%.0f / %.0f", shooter.getCurrentRPM(), shooter.getTargetRPM());
-        
+
         if (gamepad2.y) {
             telemetry.addData("ALIGNMENT", "ACTIVE");
         } else {
             telemetry.addData("ALIGNMENT", "OFF");
         }
-        
+
         // Motif detection telemetry (locked at start)
         if (lockedMotif != null) {
             telemetry.addData("MOTIF", motifToString(lockedMotif) + " (Locked)");
@@ -425,7 +425,7 @@ public class RedAllianceTeleOp extends LinearOpMode {
         } else {
             telemetry.addData("MOTIF", "NOT DETECTED");
         }
-        
+
         telemetry.update();
     }
 

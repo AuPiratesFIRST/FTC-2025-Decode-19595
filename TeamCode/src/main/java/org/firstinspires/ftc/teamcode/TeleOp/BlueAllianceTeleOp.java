@@ -262,7 +262,7 @@ public class BlueAllianceTeleOp extends LinearOpMode {
         }
         lastInputB = gamepad2.b;
 
-        if (gamepad2.a && !lastInputA && !intakeMode && !isShotSequenceActive()) {
+        if (gamepad2.a && !lastInputA && !isShotSequenceActive()) {
             spindexerPositionIndex++;
             if (spindexerPositionIndex > 2) {
                 resetToIntakeMode();

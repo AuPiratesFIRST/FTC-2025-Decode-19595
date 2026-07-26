@@ -17,7 +17,7 @@ public class OldSpindexerSubsystem {
     private static final double TICKS_PER_REVOLUTION = 2150.8;
 
     // Position definitions
-    public static final int[] INTAKE_POSITIONS = { 10, 215, 392 };
+    public static final int[] INTAKE_POSITIONS = { 0, 210, 383 };
     public static final int[] OUTTAKE_POSITIONS = { 268, 451, 630 };
 
     // COMPETITION TUNED COEFFICIENTS - Aggressive "Lockdown" Tuning
