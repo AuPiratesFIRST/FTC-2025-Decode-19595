@@ -82,6 +82,9 @@ public class AutoOuttakeController {
             registerIncomingBall(color);
         }
 
+        // Pass ball count to spindexer for load-aware PID
+        spindexer.setBallCount(getBallCount());
+
         // --- State Machine ---
         switch (state) {
             case IDLE:

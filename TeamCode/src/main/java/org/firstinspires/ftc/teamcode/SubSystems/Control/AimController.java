@@ -65,10 +65,7 @@ public class AimController {
     private int targetTagId = 24;
     private long visionLossTimeoutMs = 500;
 
-    // === STATE TRACKING (for Strafe D-term, same as TagChaserOp) ===
-    private double lastErrorX = 0;
-    private double lastTime = 0;
-    private ElapsedTime runtime = new ElapsedTime();
+    // === STATE TRACKING ===
     private ElapsedTime visionLostTimer = new ElapsedTime();
     private boolean visionWasLost = false;
 
@@ -161,9 +158,9 @@ public class AimController {
     public void setTargetTagId(int tagId) { this.targetTagId = tagId; }
     public void setVisionLossTimeout(long timeoutMs) { this.visionLossTimeoutMs = timeoutMs; }
 
-    // === MAIN UPDATE METHOD (TagChaserOp logic) ===
+    // === MAIN UPDATE METHOD (Uses refined AprilTagNavigator logic) ===
     /**
-     * Calculates alignment corrections using the same math as TagChaserOp.
+     * Calculates alignment corrections using the refined AprilTagNavigator method.
      * Returns (forward, strafe, turn) for drive(forward, strafe, turn).
      */
     public AlignmentResult update() {
@@ -173,42 +170,26 @@ public class AimController {
             visionLostTimer.reset();
             visionWasLost = false;
 
-            double currentTime = runtime.seconds();
-            double deltaTime = currentTime - lastTime;
+            // Use the refined logic moved into AprilTagNavigator
+            double[] corr = aprilTag.calculateAlignmentCorrections(
+                    tag, 
+                    desiredDistance, 
+                    Math.toRadians(desiredAngle), // USE IMU for precise rotation lock
+                    drive.getHeading(),
+                    strafeDeadband, 
+                    forwardDeadband, 
+                    turnDeadband,
+                    kpStrafe, 
+                    kpForward, 
+                    kpTurn, 
+                    kdStrafe, 
+                    maxPower
+            );
 
-            // --- 1. FORWARD/BACK (TagChaserOp: errory, Kp, deadband) ---
-            double errory = tag.ftcPose.y - desiredDistance;
-            double driveForward = 0;
-            if (Math.abs(errory) > forwardDeadband) {
-                driveForward = errory * kpForward;
-            }
-
-            // --- 2. STRAFE PD (TagChaserOp: errorx, StrafeKp, StrafeKd, deadband) ---
-            double errorx = tag.ftcPose.x;
-            double driveStrafe = 0;
-            if (Math.abs(errorx) > strafeDeadband) {
-                double pTermX = errorx * kpStrafe;
-                double dTermX = (deltaTime > 0) ? ((errorx - lastErrorX) / deltaTime) * kdStrafe : 0;
-                driveStrafe = pTermX + dTermX;
-            }
-
-            // --- 3. ROTATION (TagChaserOp: bearing, TurnKp, deadband) ---
-            double errorRot = tag.ftcPose.bearing;
-            double driveTurn = 0;
-            if (Math.abs(errorRot) > turnDeadband) {
-                driveTurn = errorRot * kpTurn;
-            }
-
-            lastErrorX = errorx;
-            lastTime = currentTime;
-
-            double forward = Range.clip(driveForward, -maxPower, maxPower);
-            double strafe = Range.clip(driveStrafe, -maxPower, maxPower);
-            double turn = Range.clip(driveTurn, -maxPower, maxPower);
-
-            boolean aligned = Math.abs(errory) <= forwardDeadband
-                    && Math.abs(errorx) <= strafeDeadband
-                    && Math.abs(errorRot) <= turnDeadband;
+            double strafe = corr[0];
+            double forward = corr[1];
+            double turn = corr[2];
+            boolean aligned = (corr[3] == 1.0);
 
             if (aligned) {
                 return new AlignmentResult(0, 0, 0, true, AlignmentMode.ALIGNED);
@@ -221,8 +202,6 @@ public class AimController {
             visionLostTimer.reset();
             visionWasLost = true;
         }
-        lastErrorX = 0;
-        lastTime = runtime.seconds();
 
         double angleError = AngleUnit.normalizeDegrees(desiredAngle - drive.getHeadingDegrees());
         double turnPower = Range.clip(angleError * kpTurn, -maxPower, maxPower);
@@ -237,7 +216,6 @@ public class AimController {
     }
 
     public void resetSmoothing() {
-        lastErrorX = 0;
-        lastTime = runtime.seconds();
+        // Now handled inside AprilTagNavigator
     }
 }
