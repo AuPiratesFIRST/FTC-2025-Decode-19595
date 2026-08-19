@@ -14,24 +14,30 @@ public class OldSpindexerSubsystem {
     private final DcMotorEx spindexerMotor;
     private final Telemetry telemetry;
 
-    private static final double TICKS_PER_REVOLUTION = 2150.8;
+    // FIXED: goBILDA 5202-2402-0019 (19.2:1) publishes 537.7 "Pulses per Rotation"
+    // at the output shaft, and that number IS the fully quadrature-decoded tick
+    // count getCurrentPosition() returns per revolution (28 counts at the encoder
+    // shaft x 19.2 gearing = 537.7; REV's own SDK uses this the same way, e.g.
+    // ticksPerRev = 28 x gearing for other goBILDA ratios). Do NOT multiply by 4
+    // again -- that was the previous bug (2150.8 = 537.7 x 4), which made the
+    // shortest-path wraparound window 4x too wide.
+    private static final double TICKS_PER_REVOLUTION = 537.7;
 
-    // Position definitions
+    // Position definitions (unchanged -- these were tuned against real hardware
+    // ticks, which were always genuinely 537.7-scale regardless of the old,
+    // incorrect wraparound constant, so they don't need to be rescaled)
     public static final int[] INTAKE_POSITIONS = { 0, 210, 383 };
     public static final int[] OUTTAKE_POSITIONS = { 268, 451, 630 };
 
     // COMPETITION TUNED COEFFICIENTS - Aggressive "Lockdown" Tuning
-    // Base coefficients for empty (intake) mode
-    private static final double kP_EMPTY = 0.02350000000000001;     // High P for immediate reaction
-    private static final double kI_EMPTY = 0;   // I builds up the "Active Hold" force
-    private static final double kD_EMPTY = 0;    // D prevents high-speed shaking
-    
-    // Enhanced coefficients for loaded (outtake) mode - prevents sag under load
-    private static final double kP_LOADED = 0.035;   // ~1.5× boost for faster response under load
-    private static final double kI_LOADED = 0;  // Slightly higher integral for steady hold
-    private static final double kD_LOADED = 0;   // Increased damping to prevent overshoot
-    
-    // Active coefficients (dynamically selected based on mode)
+    private static final double kP_EMPTY = 0.02350000000000001;
+    private static final double kI_EMPTY = 0;
+    private static final double kD_EMPTY = 0;
+
+    private static final double kP_LOADED = 0.035;
+    private static final double kI_LOADED = 0;
+    private static final double kD_LOADED = 0;
+
     private double kP = kP_EMPTY;
     private double kI = kI_EMPTY;
     private double kD = kD_EMPTY;
@@ -42,19 +48,26 @@ public class OldSpindexerSubsystem {
     private int targetPosition = 0;
     private int encoderOffset = 0;
 
-    private static final int POSITION_TOLERANCE = 8; // Tighter tolerance for accuracy
-    private static final double SPEED_MULTIPLIER = 0.2; // Increased from 0.35 for better response
-    private static final double GRAVITY_FEEDFORWARD = 0.08; // 8% power to counter gravity in vertical spindexer
-    private static final double kS = 0.05; // Static friction compensation (replaces hardcoded nudge)
-    private static final double kV = 0.0002; // Velocity feedforward (ticks/sec -> power)
-    private static final double kA = 0.00002; // Acceleration feedforward (ticks/sec^2 -> power)
-    private static final double GRAVITY_DIRECTION_ERROR_DEADBAND = 4.0; // ticks, avoids sign chatter near target
-    private static final double GRAVITY_DIRECTION_VELOCITY_DEADBAND = 20.0; // ticks/sec
+    // FIXED (Bug 2/1 root cause): continuous, unwrapped target that the motion
+    // profiler chases. Lives in the SAME domain as getCurrentPosition() (which is
+    // already continuous/unbounded -- it's never wrapped). targetPosition (above)
+    // stays as a normalized [0, TICKS_PER_REVOLUTION) value for index lookups /
+    // telemetry / compatibility, but all profiling and error math now uses this
+    // continuous value instead of re-normalizing every tick.
+    private double continuousTarget = 0.0;
 
-    // Motion profile constraints (ticks domain)
+    private static final int POSITION_TOLERANCE = 8;
+    private static final double SPEED_MULTIPLIER = 0.2;
+    private static final double GRAVITY_FEEDFORWARD = 0.08;
+    private static final double kS = 0.05;
+    private static final double kV = 0.0002;
+    private static final double kA = 0.00002;
+    private static final double GRAVITY_DIRECTION_ERROR_DEADBAND = 4.0;
+    private static final double GRAVITY_DIRECTION_VELOCITY_DEADBAND = 20.0;
+
     private static final boolean MOTION_PROFILE_ENABLED = true;
-    private static final double MAX_PROFILE_VELOCITY = 900.0;      // ticks/sec
-    private static final double MAX_PROFILE_ACCELERATION = 2200.0; // ticks/sec^2
+    private static final double MAX_PROFILE_VELOCITY = 900.0;
+    private static final double MAX_PROFILE_ACCELERATION = 2200.0;
 
     private boolean pidEnabled = false;
     private boolean tuningMode = false;
@@ -98,14 +111,11 @@ public class OldSpindexerSubsystem {
     public void update() {
         if (!pidEnabled) return;
 
-        // Dynamically adjust PID coefficients based on mode and ball count
         if (intakeMode || ballCount == 0) {
             kP = kP_EMPTY;
             kI = kI_EMPTY;
             kD = kD_EMPTY;
         } else {
-            // Scale loaded gains based on ball count (1-3)
-            // If ballCount is 3, use full kP_LOADED. If 1, use something in between.
             double scale = 0.7 + (0.1 * ballCount); // 1->0.8, 2->0.9, 3->1.0
             kP = kP_LOADED * scale;
             kI = kI_LOADED * scale;
@@ -118,44 +128,50 @@ public class OldSpindexerSubsystem {
         lastUpdateNanos = now;
 
         if (!MOTION_PROFILE_ENABLED) {
-            profiledTargetPosition = targetPosition;
+            // FIXED: chase the continuous target directly, not a re-normalized one
+            profiledTargetPosition = continuousTarget;
             profileVelocity = 0.0;
         } else {
             updateMotionProfile(dtSec);
         }
 
-        double error = shortestError(profiledTargetPosition, currentPosition);
-
-        // LOCKDOWN: We no longer stop at the deadband.
-        // The motor stays active to "Pre-load" the gears and fight back.
+        // FIXED (Bug 1/2): plain continuous subtraction. profiledTargetPosition and
+        // currentPosition are both already unwrapped/continuous and were brought
+        // into agreement when the move was issued (see setNormalizedTarget /
+        // goToPositionForwardOnly / goToPositionBackwardOnly), so no shortestError()
+        // re-normalization is needed -- or wanted -- here.
+        double error = profiledTargetPosition - currentPosition;
 
         if (!hasPrevError) {
             lastError = error;
             hasPrevError = true;
         }
 
-        // Build Active Hold Force
         integralSum += error;
 
-        // Anti-windup: limit hold force to 40% motor power to prevent over-stalling
-        integralSum = Range.clip(integralSum, -0.4 / (kI + 1e-9), 0.4 / (kI + 1e-9));
+        // FIXED (Bug 4): clamp the integral's power contribution directly instead
+        // of dividing by kI (which blew up to +-4e8 when kI == 0, disabling
+        // anti-windup entirely). When kI is zero/negative, the integral term
+        // contributes nothing, so just keep the accumulator at zero.
+        if (kI > 1e-9) {
+            double maxIntegralPower = 0.4;
+            integralSum = Range.clip(integralSum, -maxIntegralPower / kI, maxIntegralPower / kI);
+        } else {
+            integralSum = 0;
+        }
 
         double derivative = ((error - lastError) / dtSec) * kD;
         lastError = error;
 
         double output = (error * kP) + (integralSum * kI) + derivative;
 
-        // kS static friction feedforward
         double staticFrictionFF = 0;
         if (Math.abs(error) > 1) {
             staticFrictionFF = Math.signum(error) * kS;
         }
 
-        // GRAVITY FEEDFORWARD: For vertical spindexer, add constant force to counter gravity
-        // This helps prevent sag when loaded (outtake mode) without waiting for PID to react
         double gravityFF = 0;
         if (!intakeMode) {
-            // Keep gravity direction stable near zero error to avoid buzzing/hunting.
             if (Math.abs(profileVelocity) > GRAVITY_DIRECTION_VELOCITY_DEADBAND) {
                 gravityDirectionSign = Math.signum(profileVelocity);
             } else if (Math.abs(error) > GRAVITY_DIRECTION_ERROR_DEADBAND) {
@@ -164,12 +180,10 @@ public class OldSpindexerSubsystem {
             gravityFF = GRAVITY_FEEDFORWARD * gravityDirectionSign;
         }
 
-        // Velocity/acceleration feedforward from profiled motion
         double profileAcceleration = (profileVelocity - lastProfileVelocity) / dtSec;
         lastProfileVelocity = profileVelocity;
         double dynamicFF = (kV * profileVelocity) + (kA * profileAcceleration);
 
-        // Combine PID output with feedforward terms
         double finalOutput = output + staticFrictionFF + gravityFF + dynamicFF;
         lastProfileAcceleration = profileAcceleration;
         lastStaticFrictionFF = staticFrictionFF;
@@ -199,41 +213,42 @@ public class OldSpindexerSubsystem {
     public void updateTelemetry() {
         if (telemetry == null) return;
         telemetry.addData("Spindexer Target", targetPosition);
+        telemetry.addData("Spindexer Continuous Target", "%.1f", continuousTarget);
         telemetry.addData("Spindexer Profiled Target", "%.1f", profiledTargetPosition);
         telemetry.addData("Spindexer Current", getCurrentPosition());
         telemetry.addData("Ball Count", ballCount);
         telemetry.addData("Encoder Raw", spindexerMotor.getCurrentPosition());
         telemetry.addData("Encoder Offset", encoderOffset);
         telemetry.addData("Hold Power", "%.2f", spindexerMotor.getPower());
-        telemetry.addData("FF Breakdown", "S:%.2f, G:%.2f, V/A:%.2f", 
-    getLastStaticFrictionFF(), getLastGravityFF(), getLastDynamicFF());
+        telemetry.addData("FF Breakdown", "S:%.2f, G:%.2f, V/A:%.2f",
+                getLastStaticFrictionFF(), getLastGravityFF(), getLastDynamicFF());
         telemetry.addData("Profile Vel", "%.2f", getProfileVelocity());
     }
 
     public void goToPosition(int index) {
         if (index >= 0 && index <= 2) goToPositionForCurrentMode(index);
         else {
-            targetPosition = normalizeTicks(index);
+            setNormalizedTarget(index);
             setPIDEnabled(true);
         }
     }
 
     public void goToPosition(SpindexerPosition position) {
-        targetPosition = normalizeTicks(position.getTicks());
+        setNormalizedTarget(position.getTicks());
         setPIDEnabled(true);
     }
 
     public void goToPositionForCurrentMode(int index) {
         int ticks = intakeMode ? INTAKE_POSITIONS[index] : OUTTAKE_POSITIONS[index];
-        targetPosition = normalizeTicks(ticks);
+        setNormalizedTarget(ticks);
         setPIDEnabled(true);
         resetPIDOnly();
     }
 
     /**
      * Switch to outtake mode using forward-only movement to prevent jamming.
-     * Call this when switching from intake → outtake to ensure balls don't get pushed backward.
-     * 
+     * Call this when switching from intake -> outtake to ensure balls don't get pushed backward.
+     *
      * @param index The position index (0-2) to move to in outtake mode
      */
     public void switchToOuttakeModeForwardOnly(int index) {
@@ -244,7 +259,9 @@ public class OldSpindexerSubsystem {
     }
 
     public void lockCurrentPosition() {
-        targetPosition = normalizeTicks(getCurrentPosition());
+        int current = getCurrentPosition();
+        targetPosition = normalizeTicks(current);
+        continuousTarget = current;
         setPIDEnabled(true);
         resetPIDOnly();
     }
@@ -256,23 +273,29 @@ public class OldSpindexerSubsystem {
     public void calibrateCurrentPosition(int index) {
         int expectedTicks = intakeMode ? INTAKE_POSITIONS[index] : OUTTAKE_POSITIONS[index];
         encoderOffset = expectedTicks - spindexerMotor.getCurrentPosition();
-        targetPosition = expectedTicks;
+        setNormalizedTarget(expectedTicks);
         resetPIDOnly();
     }
 
     /**
      * Move to target position using FORWARD-ONLY (clockwise) movement.
      * Ensures shortest forward path without going backward.
+     *
+     * FIXED (Bug 2): continuousTarget is now set directly to current + forwardDistance
+     * (a continuous, unbounded value) and the motion profiler chases continuousTarget
+     * with plain subtraction -- no shortestError() re-normalization in the loop that
+     * could snap the direction back to "nearest," which is what silently overrode the
+     * forward-only intent before.
      */
     public void goToPositionForwardOnly(int ticksTarget) {
-        int current = normalizeTicks(getCurrentPosition());
+        int current = getCurrentPosition();
+        int normalizedCurrent = normalizeTicks(current);
         int normalized = normalizeTicks(ticksTarget);
-        
-        // Calculate forward distance
-        int forwardDistance = (normalized - current + (int) TICKS_PER_REVOLUTION) % (int) TICKS_PER_REVOLUTION;
-        
-        // Set target to current + forward distance to ensure forward movement
-        targetPosition = current + forwardDistance;
+
+        int forwardDistance = (normalized - normalizedCurrent + (int) TICKS_PER_REVOLUTION) % (int) TICKS_PER_REVOLUTION;
+
+        targetPosition = normalized;
+        continuousTarget = current + forwardDistance;
         setPIDEnabled(true);
         resetPIDOnly();
     }
@@ -282,19 +305,17 @@ public class OldSpindexerSubsystem {
      * Ensures movement in reverse direction.
      */
     public void goToPositionBackwardOnly(int ticksTarget) {
-        int current = normalizeTicks(getCurrentPosition());
+        int current = getCurrentPosition();
+        int normalizedCurrent = normalizeTicks(current);
         int normalized = normalizeTicks(ticksTarget);
-        
-        // Calculate backward distance
-        int backwardDistance = (current - normalized + (int) TICKS_PER_REVOLUTION) % (int) TICKS_PER_REVOLUTION;
-        
-        // If backward distance is 0, go full revolution backward
+
+        int backwardDistance = (normalizedCurrent - normalized + (int) TICKS_PER_REVOLUTION) % (int) TICKS_PER_REVOLUTION;
         if (backwardDistance == 0) {
             backwardDistance = (int) TICKS_PER_REVOLUTION;
         }
-        
-        // Set target to current - backward distance to ensure backward movement
-        targetPosition = current - backwardDistance;
+
+        targetPosition = normalized;
+        continuousTarget = current - backwardDistance;
         setPIDEnabled(true);
         resetPIDOnly();
     }
@@ -306,6 +327,7 @@ public class OldSpindexerSubsystem {
         spindexerMotor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         encoderOffset = 0;
         targetPosition = 0;
+        continuousTarget = 0.0;
         resetPIDOnly();
         pidEnabled = false;
     }
@@ -320,15 +342,31 @@ public class OldSpindexerSubsystem {
         lastUpdateNanos = System.nanoTime();
     }
 
+    /**
+     * Sets a normalized (index-style) target and computes the nearest continuous
+     * absolute equivalent to chase, using shortestError ONCE at command time (not
+     * every tick). This is the correct place for "nearest direction" wraparound
+     * logic -- it should decide direction when a move is issued, not get
+     * re-applied every control-loop tick while the move is in progress.
+     */
+    private void setNormalizedTarget(int ticks) {
+        int normalized = normalizeTicks(ticks);
+        int current = getCurrentPosition();
+        targetPosition = normalized;
+        continuousTarget = current + shortestError(normalized, current);
+    }
+
     public boolean isAtPosition() {
-        return Math.abs(shortestError(targetPosition, getCurrentPosition())) <= POSITION_TOLERANCE;
+        return Math.abs(continuousTarget - getCurrentPosition()) <= POSITION_TOLERANCE;
     }
 
     public boolean isMoving() {
-        // Report moving if we are active and significantly away from target
-        return pidEnabled && Math.abs(shortestError(targetPosition, getCurrentPosition())) > POSITION_TOLERANCE;
+        return pidEnabled && Math.abs(continuousTarget - getCurrentPosition()) > POSITION_TOLERANCE;
     }
 
+    /** Shortest-path wraparound distance. Use only for one-shot "nearest direction"
+     *  decisions (e.g. picking a continuous target, or comparing indices) -- NOT
+     *  inside the continuous motion-profile loop. */
     public double shortestError(int target, int current) {
         int nTarget = normalizeTicks(target);
         int nCurrent = normalizeTicks(current);
@@ -359,8 +397,14 @@ public class OldSpindexerSubsystem {
         return normalized;
     }
 
+    /**
+     * FIXED (Bug 1/2): operates entirely in continuous ticks now. profiledTargetPosition
+     * chases continuousTarget with plain subtraction and is never wrapped back into
+     * [0, TICKS_PER_REVOLUTION) mid-move, so a forced-direction target that's
+     * legitimately more than half a revolution away stays correct for the whole move.
+     */
     private void updateMotionProfile(double dtSec) {
-        double positionErrorToGoal = shortestError(targetPosition, profiledTargetPosition);
+        double positionErrorToGoal = continuousTarget - profiledTargetPosition;
         double direction = Math.signum(positionErrorToGoal);
         double stoppingDistance = (profileVelocity * profileVelocity) / (2.0 * MAX_PROFILE_ACCELERATION);
 
@@ -382,45 +426,46 @@ public class OldSpindexerSubsystem {
             profileVelocity = 0.0;
         }
 
-        profiledTargetPosition = normalizeTicks(profiledTargetPosition + step);
+        profiledTargetPosition += step;
     }
 
-        public void stopManual() {
-        // Stop manual control and return to idle
+    public void stopManual() {
         spindexerMotor.setPower(0);
         pidEnabled = false;
     }
 
-    public void setPIDEnabled(boolean enabled) { this.pidEnabled = enabled; }
-    
     /**
-     * Set intake mode. When switching modes, PID is reset to prevent windup from previous mode.
-     * 
-     * @param intake true for intake mode (empty), false for outtake mode (loaded)
+     * FIXED (Bug 3): resets PID/profile state automatically whenever PID transitions
+     * from disabled -> enabled, so re-enabling after setManualPower() (or any other
+     * disabled period) can never resume with a stale integral or a stale
+     * profiledTargetPosition. Command methods can still call resetPIDOnly() explicitly
+     * afterward too (harmless / idempotent) -- this is just a safety net so no call
+     * site can forget it.
      */
-    public void setIntakeMode(boolean intake) { 
+    public void setPIDEnabled(boolean enabled) {
+        if (enabled && !this.pidEnabled) {
+            resetPIDOnly();
+        }
+        this.pidEnabled = enabled;
+    }
+
+    public void setIntakeMode(boolean intake) {
         boolean modeChanged = this.intakeMode != intake;
         this.intakeMode = intake;
-        // Reset PID when switching modes to prevent windup from previous mode's error
         if (modeChanged) {
             resetPIDOnly();
         }
     }
 
-    /**
-     * Set the number of balls currently in the spindexer.
-     * This adjusts the PID gains to handle the additional weight/friction.
-     * 
-     * @param count Number of balls (0-3)
-     */
     public void setBallCount(int count) {
         this.ballCount = Range.clip(count, 0, 3);
     }
-    
+
     public void setTuningMode(boolean enabled) { this.tuningMode = enabled; }
     public boolean isSettling() { return false; }
     public int getCurrentPosition() { return spindexerMotor.getCurrentPosition() + encoderOffset; }
     public int getTargetPosition() { return targetPosition; }
+    public double getContinuousTargetPosition() { return continuousTarget; }
     public double getProfiledTargetPosition() { return profiledTargetPosition; }
     public double getProfileVelocity() { return profileVelocity; }
     public double getProfileAcceleration() { return lastProfileAcceleration; }
