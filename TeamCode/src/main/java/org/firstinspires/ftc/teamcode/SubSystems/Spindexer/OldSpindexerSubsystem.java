@@ -40,6 +40,7 @@ public class OldSpindexerSubsystem {
     private double integralSum = 0;
     private boolean hasPrevError = false;
     private int targetPosition = 0;
+    private int encoderOffset = 0;
 
     private static final int POSITION_TOLERANCE = 8; // Tighter tolerance for accuracy
     private static final double SPEED_MULTIPLIER = 0.2; // Increased from 0.35 for better response
@@ -58,6 +59,7 @@ public class OldSpindexerSubsystem {
     private boolean pidEnabled = false;
     private boolean tuningMode = false;
     private boolean intakeMode = true;
+    private int ballCount = 0;
     private double profiledTargetPosition = 0.0;
     private double profileVelocity = 0.0;
     private double lastProfileVelocity = 0.0;
@@ -96,19 +98,21 @@ public class OldSpindexerSubsystem {
     public void update() {
         if (!pidEnabled) return;
 
-        // Dynamically adjust PID coefficients based on mode (loaded vs empty)
-        if (intakeMode) {
+        // Dynamically adjust PID coefficients based on mode and ball count
+        if (intakeMode || ballCount == 0) {
             kP = kP_EMPTY;
             kI = kI_EMPTY;
             kD = kD_EMPTY;
         } else {
-            // Outtake mode = loaded with balls, use higher gains to prevent sag
-            kP = kP_LOADED;
-            kI = kI_LOADED;
-            kD = kD_LOADED;
+            // Scale loaded gains based on ball count (1-3)
+            // If ballCount is 3, use full kP_LOADED. If 1, use something in between.
+            double scale = 0.7 + (0.1 * ballCount); // 1->0.8, 2->0.9, 3->1.0
+            kP = kP_LOADED * scale;
+            kI = kI_LOADED * scale;
+            kD = kD_LOADED * scale;
         }
 
-        int currentPosition = spindexerMotor.getCurrentPosition();
+        int currentPosition = getCurrentPosition();
         long now = System.nanoTime();
         double dtSec = lastUpdateNanos == 0L ? 0.02 : Math.max(0.001, (now - lastUpdateNanos) / 1_000_000_000.0);
         lastUpdateNanos = now;
@@ -196,7 +200,10 @@ public class OldSpindexerSubsystem {
         if (telemetry == null) return;
         telemetry.addData("Spindexer Target", targetPosition);
         telemetry.addData("Spindexer Profiled Target", "%.1f", profiledTargetPosition);
-        telemetry.addData("Spindexer Current", spindexerMotor.getCurrentPosition());
+        telemetry.addData("Spindexer Current", getCurrentPosition());
+        telemetry.addData("Ball Count", ballCount);
+        telemetry.addData("Encoder Raw", spindexerMotor.getCurrentPosition());
+        telemetry.addData("Encoder Offset", encoderOffset);
         telemetry.addData("Hold Power", "%.2f", spindexerMotor.getPower());
         telemetry.addData("FF Breakdown", "S:%.2f, G:%.2f, V/A:%.2f", 
     getLastStaticFrictionFF(), getLastGravityFF(), getLastDynamicFF());
@@ -237,8 +244,19 @@ public class OldSpindexerSubsystem {
     }
 
     public void lockCurrentPosition() {
-        targetPosition = normalizeTicks(spindexerMotor.getCurrentPosition());
+        targetPosition = normalizeTicks(getCurrentPosition());
         setPIDEnabled(true);
+        resetPIDOnly();
+    }
+
+    /**
+     * Calibrates the spindexer by setting the current physical position as a specific index.
+     * Useful for fixing the "starting position" issue if the robot is initialized misaligned.
+     */
+    public void calibrateCurrentPosition(int index) {
+        int expectedTicks = intakeMode ? INTAKE_POSITIONS[index] : OUTTAKE_POSITIONS[index];
+        encoderOffset = expectedTicks - spindexerMotor.getCurrentPosition();
+        targetPosition = expectedTicks;
         resetPIDOnly();
     }
 
@@ -247,7 +265,7 @@ public class OldSpindexerSubsystem {
      * Ensures shortest forward path without going backward.
      */
     public void goToPositionForwardOnly(int ticksTarget) {
-        int current = normalizeTicks(spindexerMotor.getCurrentPosition());
+        int current = normalizeTicks(getCurrentPosition());
         int normalized = normalizeTicks(ticksTarget);
         
         // Calculate forward distance
@@ -264,7 +282,7 @@ public class OldSpindexerSubsystem {
      * Ensures movement in reverse direction.
      */
     public void goToPositionBackwardOnly(int ticksTarget) {
-        int current = normalizeTicks(spindexerMotor.getCurrentPosition());
+        int current = normalizeTicks(getCurrentPosition());
         int normalized = normalizeTicks(ticksTarget);
         
         // Calculate backward distance
@@ -286,6 +304,7 @@ public class OldSpindexerSubsystem {
     public void reset() {
         spindexerMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         spindexerMotor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        encoderOffset = 0;
         targetPosition = 0;
         resetPIDOnly();
         pidEnabled = false;
@@ -297,17 +316,17 @@ public class OldSpindexerSubsystem {
         hasPrevError = false;
         profileVelocity = 0.0;
         lastProfileVelocity = 0.0;
-        profiledTargetPosition = spindexerMotor.getCurrentPosition();
+        profiledTargetPosition = getCurrentPosition();
         lastUpdateNanos = System.nanoTime();
     }
 
     public boolean isAtPosition() {
-        return Math.abs(shortestError(targetPosition, spindexerMotor.getCurrentPosition())) <= POSITION_TOLERANCE;
+        return Math.abs(shortestError(targetPosition, getCurrentPosition())) <= POSITION_TOLERANCE;
     }
 
     public boolean isMoving() {
         // Report moving if we are active and significantly away from target
-        return pidEnabled && Math.abs(shortestError(targetPosition, spindexerMotor.getCurrentPosition())) > POSITION_TOLERANCE;
+        return pidEnabled && Math.abs(shortestError(targetPosition, getCurrentPosition())) > POSITION_TOLERANCE;
     }
 
     public double shortestError(int target, int current) {
@@ -387,10 +406,20 @@ public class OldSpindexerSubsystem {
             resetPIDOnly();
         }
     }
+
+    /**
+     * Set the number of balls currently in the spindexer.
+     * This adjusts the PID gains to handle the additional weight/friction.
+     * 
+     * @param count Number of balls (0-3)
+     */
+    public void setBallCount(int count) {
+        this.ballCount = Range.clip(count, 0, 3);
+    }
     
     public void setTuningMode(boolean enabled) { this.tuningMode = enabled; }
     public boolean isSettling() { return false; }
-    public int getCurrentPosition() { return spindexerMotor.getCurrentPosition(); }
+    public int getCurrentPosition() { return spindexerMotor.getCurrentPosition() + encoderOffset; }
     public int getTargetPosition() { return targetPosition; }
     public double getProfiledTargetPosition() { return profiledTargetPosition; }
     public double getProfileVelocity() { return profileVelocity; }
